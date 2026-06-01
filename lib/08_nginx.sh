@@ -82,16 +82,24 @@ configure_nginx_limited_sudo_for_user() {
     id "$certsync_user" >/dev/null 2>&1 || return 1
 
     ensure_basic_tool_installed sudo sudo || {
-        msg_warn "sudo 未安装，无法为 ${certsync_user} 配置 Nginx 受限重载/重启权限。"
+        msg_warn "sudo 未安装，无法为 ${certsync_user} 配置 Nginx/3x-ui 受限管理权限。"
         return 1
     }
 
     sudoers_file="/etc/sudoers.d/vps-init-suite-certsync-${certsync_user}"
     tmp_file=$(mktemp) || return 1
     cat > "$tmp_file" <<SUDOERSEOF
-# Managed by VPS Init Suite - 允许 ${certsync_user} 用户非交互执行证书部署与 Nginx 重载/重启
+# Managed by VPS Init Suite - 允许 ${certsync_user} 用户非交互执行证书部署与 Nginx/3x-ui 受限管理
 Defaults:${certsync_user} !requiretty
-${certsync_user} ALL=(root) NOPASSWD: /usr/bin/install, /bin/install, /usr/bin/systemctl reload nginx, /usr/bin/systemctl reload nginx.service, /usr/bin/systemctl restart nginx, /usr/bin/systemctl restart nginx.service, /bin/systemctl reload nginx, /bin/systemctl reload nginx.service, /bin/systemctl restart nginx, /bin/systemctl restart nginx.service, /usr/sbin/service nginx reload, /usr/sbin/service nginx restart, /sbin/service nginx reload, /sbin/service nginx restart, /usr/sbin/nginx -t, /sbin/nginx -t
+${certsync_user} ALL=(root) NOPASSWD: /usr/bin/install, /bin/install
+${certsync_user} ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx, /usr/bin/systemctl reload nginx.service, /usr/bin/systemctl restart nginx, /usr/bin/systemctl restart nginx.service
+${certsync_user} ALL=(root) NOPASSWD: /bin/systemctl reload nginx, /bin/systemctl reload nginx.service, /bin/systemctl restart nginx, /bin/systemctl restart nginx.service
+${certsync_user} ALL=(root) NOPASSWD: /usr/sbin/service nginx reload, /usr/sbin/service nginx restart, /sbin/service nginx reload, /sbin/service nginx restart
+${certsync_user} ALL=(root) NOPASSWD: /usr/sbin/nginx -t, /sbin/nginx -t
+${certsync_user} ALL=(root) NOPASSWD: /usr/bin/systemctl start x-ui, /usr/bin/systemctl start x-ui.service, /usr/bin/systemctl stop x-ui, /usr/bin/systemctl stop x-ui.service, /usr/bin/systemctl restart x-ui, /usr/bin/systemctl restart x-ui.service
+${certsync_user} ALL=(root) NOPASSWD: /bin/systemctl start x-ui, /bin/systemctl start x-ui.service, /bin/systemctl stop x-ui, /bin/systemctl stop x-ui.service, /bin/systemctl restart x-ui, /bin/systemctl restart x-ui.service
+${certsync_user} ALL=(root) NOPASSWD: /usr/sbin/service x-ui start, /usr/sbin/service x-ui stop, /usr/sbin/service x-ui restart, /sbin/service x-ui start, /sbin/service x-ui stop, /sbin/service x-ui restart
+${certsync_user} ALL=(root) NOPASSWD: /usr/bin/x-ui start, /usr/bin/x-ui stop, /usr/bin/x-ui restart, /usr/bin/x-ui restart-xray
 SUDOERSEOF
     chmod 440 "$tmp_file"
 
@@ -101,7 +109,7 @@ SUDOERSEOF
             return 1
         }
         if visudo -c >/dev/null 2>&1; then
-            msg_ok "已为 ${certsync_user} 配置 Nginx 受限 sudo 权限"
+            msg_ok "已为 ${certsync_user} 配置 Nginx/3x-ui 受限 sudo 权限"
             rm -f "$tmp_file"
             return 0
         else

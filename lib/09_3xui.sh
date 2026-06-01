@@ -92,6 +92,8 @@ install_3x_ui_preconfigured() {
         service x-ui restart >/dev/null 2>&1 || true
     fi
 
+    configure_nginx_limited_sudo_for_users || true
+
     # --- 3. 在 3x-ui 安装完成后，写入已经预设好的 Nginx 反代 ---
     if [ "$use_nginx" -eq 1 ]; then
         write_3x_ui_nginx_proxy_config "$domain" "$listen_port" "$enable_ssl" "$cert_file" "$key_file" "$xui_port" "$xui_url_path" || {

@@ -28,7 +28,7 @@ menu_ops_tools() {
 
         menu_section "配置与辅助"
         menu_pair "[7] 部署Compose仓库" "[8] 创建ssl证书目录"
-        menu_pair "[9] 为现有3x-ui配置反代"
+        menu_pair "[9] 为现有3x-ui配置反代" "[I] 补全Nginx/3x-ui sudo"
 
         menu_section "卸载与清理"
         menu_pair "[A] 卸载Docker" "[B] 卸载3x-ui"
@@ -78,6 +78,8 @@ menu_ops_tools() {
                 run_confirmed_action "安装Nginx" install_nginx ;;
             9)
                 run_confirmed_action "为现有3x-ui配置Nginx反代" configure_existing_3x_ui_nginx_proxy ;;
+            I|i)
+                run_confirmed_action "补全非root用户 Nginx/3x-ui 受限 sudo 权限" configure_nginx_limited_sudo_for_users ;;
             F|f)
                 if confirm "安装 Komari 并预置配置"; then
                     install_komari_preconfigured
