@@ -34,6 +34,104 @@ reload_or_restart_nginx() {
     service nginx reload >/dev/null 2>&1 || service nginx restart >/dev/null 2>&1
 }
 
+collect_nginx_sudo_target_users() {
+    local user group group_line group_gid group_members login_user explicit_users owner_user
+
+    {
+        explicit_users="${NGINX_SUDO_USERS:-}"
+        explicit_users=${explicit_users//,/ }
+        for user in $explicit_users; do
+            [ -n "$user" ] && printf '%s\n' "$user"
+        done
+
+        [ -n "${AUTO_DEPLOY_USER:-}" ] && printf '%s\n' "$AUTO_DEPLOY_USER"
+
+        owner_user="${SSHL_CERTS_OWNER%%:*}"
+        [ -n "$owner_user" ] && printf '%s\n' "$owner_user"
+
+        [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER:-}" != "root" ] && printf '%s\n' "$SUDO_USER"
+
+        login_user=$(logname 2>/dev/null || true)
+        [ -n "$login_user" ] && [ "$login_user" != "root" ] && printf '%s\n' "$login_user"
+
+        for group in sudo wheel admin; do
+            group_line=$(getent group "$group" 2>/dev/null || true)
+            [ -n "$group_line" ] || continue
+
+            group_gid=$(printf '%s\n' "$group_line" | awk -F: '{print $3}')
+            group_members=$(printf '%s\n' "$group_line" | awk -F: '{print $4}' | tr ',' ' ')
+            for user in $group_members; do
+                [ -n "$user" ] && printf '%s\n' "$user"
+            done
+
+            if [ -n "$group_gid" ]; then
+                awk -F: -v gid="$group_gid" '$4 == gid {print $1}' /etc/passwd 2>/dev/null || true
+            fi
+        done
+    } | awk 'NF && !seen[$0]++'
+}
+
+configure_nginx_limited_sudo_for_user() {
+    local certsync_user="$1"
+    local sudoers_file tmp_file
+
+    [[ "$certsync_user" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]] || {
+        msg_warn "跳过无效用户名：${certsync_user}"
+        return 1
+    }
+    id "$certsync_user" >/dev/null 2>&1 || return 1
+
+    ensure_basic_tool_installed sudo sudo || {
+        msg_warn "sudo 未安装，无法为 ${certsync_user} 配置 Nginx 受限重载/重启权限。"
+        return 1
+    }
+
+    sudoers_file="/etc/sudoers.d/vps-init-suite-certsync-${certsync_user}"
+    tmp_file=$(mktemp) || return 1
+    cat > "$tmp_file" <<SUDOERSEOF
+# Managed by VPS Init Suite - 允许 ${certsync_user} 用户非交互执行证书部署与 Nginx 重载/重启
+Defaults:${certsync_user} !requiretty
+${certsync_user} ALL=(root) NOPASSWD: /usr/bin/install, /bin/install, /usr/bin/systemctl reload nginx, /usr/bin/systemctl reload nginx.service, /usr/bin/systemctl restart nginx, /usr/bin/systemctl restart nginx.service, /bin/systemctl reload nginx, /bin/systemctl reload nginx.service, /bin/systemctl restart nginx, /bin/systemctl restart nginx.service, /usr/sbin/service nginx reload, /usr/sbin/service nginx restart, /sbin/service nginx reload, /sbin/service nginx restart, /usr/sbin/nginx -t, /sbin/nginx -t
+SUDOERSEOF
+    chmod 440 "$tmp_file"
+
+    if visudo -cf "$tmp_file" >/dev/null 2>&1; then
+        install -m 440 "$tmp_file" "$sudoers_file" || {
+            rm -f "$tmp_file"
+            return 1
+        }
+        if visudo -c >/dev/null 2>&1; then
+            msg_ok "已为 ${certsync_user} 配置 Nginx 受限 sudo 权限"
+            rm -f "$tmp_file"
+            return 0
+        else
+            msg_err "sudoers 全局校验失败，正在回滚 ${certsync_user} 配置。"
+            rm -f "$sudoers_file"
+            rm -f "$tmp_file"
+            return 1
+        fi
+    else
+        msg_err "sudoers 语法校验失败，跳过 ${certsync_user}。"
+        rm -f "$tmp_file"
+        return 1
+    fi
+}
+
+configure_nginx_limited_sudo_for_users() {
+    local user configured=0
+
+    while IFS= read -r user; do
+        [ -n "$user" ] || continue
+        if configure_nginx_limited_sudo_for_user "$user"; then
+            configured=1
+        fi
+    done < <(collect_nginx_sudo_target_users)
+
+    if [ "$configured" -eq 0 ]; then
+        msg_info "未检测到可配置的非 root 用户；可通过 NGINX_SUDO_USERS='user1,user2' 指定。"
+    fi
+}
+
 validate_domain_name() {
     local domain="$1"
     local label
@@ -462,6 +560,7 @@ install_nginx() {
         ensure_nginx_base_config
         nginx_version=$(nginx -v 2>&1 | awk '{print $NF}')
         nginx_status=$(systemctl is-active nginx 2>/dev/null || echo '未运行')
+        configure_nginx_limited_sudo_for_users
         msg_warn "Nginx 已安装: ${nginx_version}"
         msg_info "如需重装，请先卸载现有版本。"
         status_pair "Nginx" "${nginx_version}"
@@ -510,30 +609,5 @@ install_nginx() {
     msg_info "默认站点已配置，请根据需要修改 /etc/nginx 下的配置文件。"
 
     # 为管理用户配置受限 sudo 权限（用于 Certimate 等工具自动部署证书）
-    local certsync_user="${AUTO_DEPLOY_USER:-$DEFAULT_AUTO_INIT_USER}"
-    local sudoers_file="/etc/sudoers.d/vps-init-suite-certsync-${certsync_user}"
-    if id "$certsync_user" >/dev/null 2>&1; then
-        if [ ! -f "$sudoers_file" ]; then
-            cat > "$sudoers_file" <<SUDOERSEOF
-# Managed by VPS Init Suite - 允许 ${certsync_user} 用户非交互执行证书部署相关命令
-# 用途：Certimate 后置命令需要非交互执行 install（创建目录/复制文件/设置权限）和重载 Nginx
-Defaults:${certsync_user} !requiretty
-Cmnd_Alias CERTSYNC = /usr/bin/install, /usr/bin/systemctl reload nginx, /usr/bin/systemctl reload nginx.service
-${certsync_user} ALL=(root) NOPASSWD: CERTSYNC
-SUDOERSEOF
-            chmod 440 "$sudoers_file"
-            # 校验 sudoers 语法
-            if visudo -c >/dev/null 2>&1; then
-                msg_ok "已为 ${certsync_user} 配置受限 sudo 权限（证书部署 + 重载 Nginx）"
-            else
-                msg_err "sudoers 语法校验失败，正在回滚。"
-                rm -f "$sudoers_file"
-            fi
-        else
-            msg_info "${certsync_user} 受限 sudo 权限已存在 (${sudoers_file})，跳过。"
-        fi
-    else
-        msg_warn "用户 ${certsync_user} 不存在，跳过受限 sudo 权限配置。"
-        msg_info "创建 ${certsync_user} 用户后可重新安装 Nginx 以自动配置。"
-    fi
+    configure_nginx_limited_sudo_for_users
 }
