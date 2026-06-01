@@ -141,50 +141,50 @@ collect_nginx_proxy_target() {
     local __enable_ssl_var="$3"
     local __cert_file_var="$4"
     local __key_file_var="$5"
-    local domain listen_port enable_ssl cert_file key_file
+    local input_domain input_listen_port input_enable_ssl input_cert_file input_key_file
 
     while true; do
-        read -p "请输入绑定域名 (例如 panel.example.com): " domain
-        if validate_domain_name "$domain"; then
+        read -p "请输入绑定域名 (例如 panel.example.com): " input_domain
+        if validate_domain_name "$input_domain"; then
             break
         fi
         msg_warn "域名格式无效，请重新输入。"
     done
 
     while true; do
-        read -p "Nginx 对外监听端口 [默认 443]: " listen_port
-        listen_port=${listen_port:-443}
-        if validate_port "$listen_port"; then
+        read -p "Nginx 对外监听端口 [默认 443]: " input_listen_port
+        input_listen_port=${input_listen_port:-443}
+        if validate_port "$input_listen_port"; then
             break
         fi
         msg_warn "端口必须是 1-65535 的数字。"
     done
 
-    read -p "是否启用 SSL 反向代理? (Y/n): " enable_ssl
-    enable_ssl=${enable_ssl:-Y}
-    if [[ "$enable_ssl" =~ ^[Nn]$ ]]; then
-        enable_ssl=0
-        cert_file=""
-        key_file=""
+    read -p "是否启用 SSL 反向代理? (Y/n): " input_enable_ssl
+    input_enable_ssl=${input_enable_ssl:-Y}
+    if [[ "$input_enable_ssl" =~ ^[Nn]$ ]]; then
+        input_enable_ssl=0
+        input_cert_file=""
+        input_key_file=""
     else
-        enable_ssl=1
-        if [ "$listen_port" -eq 80 ]; then
+        input_enable_ssl=1
+        if [ "$input_listen_port" -eq 80 ]; then
             msg_err "启用 SSL 时，Nginx 监听端口不能使用 80。请改用 443/8443 等 HTTPS 端口。"
             return 1
         fi
-        cert_file="$DEFAULT_PANEL_CERT_FILE"
-        key_file="$DEFAULT_PANEL_KEY_FILE"
-        ensure_readable_nonempty_file "$cert_file" "SSL 证书文件" || return 1
-        ensure_readable_nonempty_file "$key_file" "SSL 私钥文件" || return 1
-        msg_info "SSL 证书将固定使用：${cert_file}"
-        msg_info "SSL 私钥将固定使用：${key_file}"
+        input_cert_file="$DEFAULT_PANEL_CERT_FILE"
+        input_key_file="$DEFAULT_PANEL_KEY_FILE"
+        ensure_readable_nonempty_file "$input_cert_file" "SSL 证书文件" || return 1
+        ensure_readable_nonempty_file "$input_key_file" "SSL 私钥文件" || return 1
+        msg_info "SSL 证书将固定使用：${input_cert_file}"
+        msg_info "SSL 私钥将固定使用：${input_key_file}"
     fi
 
-    printf -v "$__domain_var" '%s' "$domain"
-    printf -v "$__listen_port_var" '%s' "$listen_port"
-    printf -v "$__enable_ssl_var" '%s' "$enable_ssl"
-    printf -v "$__cert_file_var" '%s' "$cert_file"
-    printf -v "$__key_file_var" '%s' "$key_file"
+    printf -v "$__domain_var" '%s' "$input_domain"
+    printf -v "$__listen_port_var" '%s' "$input_listen_port"
+    printf -v "$__enable_ssl_var" '%s' "$input_enable_ssl"
+    printf -v "$__cert_file_var" '%s' "$input_cert_file"
+    printf -v "$__key_file_var" '%s' "$input_key_file"
 }
 
 prepare_nginx_proxy_environment() {
