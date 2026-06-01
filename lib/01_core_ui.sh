@@ -494,6 +494,7 @@ run_confirmed_action() {
 
 create_sshl_certs_dir() {
     local cert_owner_user="${SSHL_CERTS_OWNER%%:*}"
+    local input_owner default_owner
 
     if [ -z "$cert_owner_user" ]; then
         msg_err "证书目录属主未设置。"
@@ -501,8 +502,22 @@ create_sshl_certs_dir() {
     fi
 
     if ! id "$cert_owner_user" >/dev/null 2>&1; then
-        msg_err "用户 ${cert_owner_user} 不存在，无法设置 ${SSHL_CERTS_OWNER}。"
-        return 1
+        msg_warn "用户 ${cert_owner_user} 不存在，无法设置 ${SSHL_CERTS_OWNER}。"
+
+        default_owner="${SUDO_USER:-root}"
+        if ! id "$default_owner" >/dev/null 2>&1; then
+            default_owner="root"
+        fi
+
+        while true; do
+            prompt_valid_username "请输入证书目录属主用户名" "$default_owner" input_owner || return 1
+            if id "$input_owner" >/dev/null 2>&1; then
+                cert_owner_user="$input_owner"
+                SSHL_CERTS_OWNER="${input_owner}:${input_owner}"
+                break
+            fi
+            msg_warn "用户 ${input_owner} 不存在，请输入已存在用户。"
+        done
     fi
 
     mkdir -p "$SSHL_CERTS_DIR" || {
