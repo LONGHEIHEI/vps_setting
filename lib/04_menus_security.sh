@@ -745,7 +745,10 @@ show_firewall_status() {
 }
 
 persist_netfilter_rules_quiet() {
-    [ -x "$(command -v netfilter-persistent)" ] && netfilter-persistent save >/dev/null 2>&1
+    # main.sh 启用了 set -e；未安装 netfilter-persistent 时不能让菜单退出。
+    command -v netfilter-persistent >/dev/null 2>&1 || return 0
+    netfilter-persistent save >/dev/null 2>&1 || true
+    return 0
 }
 
 menu_firewall_service_init() {
