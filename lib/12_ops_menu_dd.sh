@@ -56,7 +56,11 @@ menu_ops_tools() {
                 run_confirmed_action "安装Docker" install_or_configure_docker ;;
             3)
                 if confirm "安装3x-ui并预置配置"; then
-                    install_3x_ui_preconfigured
+                    if install_3x_ui_preconfigured; then
+                        msg_ok "3x-ui 安装流程完成"
+                    else
+                        msg_err "3x-ui 安装流程失败或已中止"
+                    fi
                 fi ;;
             4)
                 run_confirmed_action "安装Lucky普通版到/etc/lucky?" install_lucky_standard ;;
@@ -164,4 +168,3 @@ install_system_tools() {
         pause
     done
 }
-

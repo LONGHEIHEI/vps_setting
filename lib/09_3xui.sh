@@ -12,7 +12,9 @@ install_3x_ui_preconfigured() {
     local default_xui_path
     local xui_url_path
 
-    default_xui_path=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 18)
+    # main.sh 启用了 pipefail；tr | head 在 head 取够字符后会触发 SIGPIPE，
+    # 直接写在赋值语句里可能让整个主菜单退出。这里显式忽略该管道状态。
+    default_xui_path=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 18 || true)
     [ -n "$default_xui_path" ] || default_xui_path="panel$(date +%H%M%S)"
 
     prompt_valid_port "请输入 3x-ui 面板端口" "51888" xui_port || return 1
