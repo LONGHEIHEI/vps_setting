@@ -328,21 +328,26 @@ firewall_open_port() {
     local backend="${1:-$(detect_firewall_backend)}"
     local proto="$2"
     local port="$3"
-    local chain
+    local normalized chain iptables_port
 
     require_native_firewall_backend "$backend" || return 1
-    validate_port "$port" || { msg_err "端口无效：$port"; return 1; }
     validate_protocol "$proto" || { msg_err "协议无效：$proto"; return 1; }
 
     if [ "$backend" = "nft" ]; then
         if [ "$proto" = "all" ]; then
             firewall_open_port "$backend" tcp "$port" || return 1
             firewall_open_port "$backend" udp "$port" || return 1
-        elif nft list chain inet filter input 2>/dev/null | grep -Eq "(^|[[:space:]])${proto}[[:space:]]+dport[[:space:]]+${port}([[:space:]]|$).*accept"; then
-            msg_warn "nftables: ${proto} 端口 ${port} 规则已存在，跳过。"
+        elif normalized=$(normalize_port_spec "${proto}:${port}"); then
+            port="${normalized#*:}"
+            if nft list chain inet filter input 2>/dev/null | grep -Eq "(^|[[:space:]])${proto}[[:space:]]+dport[[:space:]]+${port}([[:space:]]|$).*accept"; then
+                msg_warn "nftables: ${proto} 端口 ${port} 规则已存在，跳过。"
+            else
+                nft insert rule inet filter input "$proto" dport "$port" accept
+                msg_ok "nftables: ${proto} 端口 ${port} 已开放"
+            fi
         else
-            nft insert rule inet filter input "$proto" dport "$port" accept
-            msg_ok "nftables: ${proto} 端口 ${port} 已开放"
+            msg_err "端口无效：$port"
+            return 1
         fi
     else
         chain=$(get_effective_filter_chain iptables)
@@ -350,18 +355,21 @@ firewall_open_port() {
             firewall_open_port "$backend" tcp "$port" || return 1
             firewall_open_port "$backend" udp "$port" || return 1
         else
-            if iptables -C "$chain" -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null; then
+            normalized=$(normalize_port_spec "${proto}:${port}") || { msg_err "端口无效：$port"; return 1; }
+            port="${normalized#*:}"
+            iptables_port=$(port_spec_to_iptables_dport "$port")
+            if iptables -C "$chain" -p "$proto" --dport "$iptables_port" -j ACCEPT 2>/dev/null; then
                 msg_warn "iptables: ${proto} 端口 ${port} 规则已存在，跳过。"
             else
-                iptables -I "$chain" 1 -p "$proto" --dport "$port" -j ACCEPT
+                iptables -I "$chain" 1 -p "$proto" --dport "$iptables_port" -j ACCEPT
                 msg_ok "iptables: ${proto} 端口 ${port} 已开放"
             fi
             if command -v ip6tables >/dev/null 2>&1; then
                 chain=$(get_effective_filter_chain ip6tables)
-                if ip6tables -C "$chain" -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null; then
+                if ip6tables -C "$chain" -p "$proto" --dport "$iptables_port" -j ACCEPT 2>/dev/null; then
                     msg_warn "ip6tables: ${proto} 端口 ${port} 规则已存在，跳过。"
                 else
-                    ip6tables -I "$chain" 1 -p "$proto" --dport "$port" -j ACCEPT
+                    ip6tables -I "$chain" 1 -p "$proto" --dport "$iptables_port" -j ACCEPT
                     msg_ok "ip6tables: ${proto} 端口 ${port} 已开放"
                 fi
             fi
@@ -374,22 +382,26 @@ remove_iptables_port_rules() {
     local chain="$2"
     local proto="$3"
     local port="$4"
+    local iptables_port
     local removed=1
 
-    while "$cmd" -D "$chain" -p "$proto" --dport "$port" -j ACCEPT 2>/dev/null; do removed=0; done
-    while "$cmd" -D "$chain" -p "$proto" -m "$proto" --dport "$port" -j ACCEPT 2>/dev/null; do removed=0; done
+    iptables_port=$(port_spec_to_iptables_dport "$port")
+    while "$cmd" -D "$chain" -p "$proto" --dport "$iptables_port" -j ACCEPT 2>/dev/null; do removed=0; done
+    while "$cmd" -D "$chain" -p "$proto" -m "$proto" --dport "$iptables_port" -j ACCEPT 2>/dev/null; do removed=0; done
     return "$removed"
 }
 
 firewall_close_port() {
     local backend="${1:-$(detect_firewall_backend)}"
     local port="$2"
-    local chain handles
+    local chain handles current_ssh_port normalized
 
     require_native_firewall_backend "$backend" || return 1
-    validate_port "$port" || { msg_err "端口无效：$port"; return 1; }
+    normalized=$(normalize_port_spec "tcp:${port}") || { msg_err "端口无效：$port"; return 1; }
+    port="${normalized#*:}"
 
-    if [ "$port" = "$(get_current_ssh_port)" ]; then
+    current_ssh_port=$(get_current_ssh_port)
+    if port_spec_contains_port "$port" "$current_ssh_port"; then
         msg_warn "你正在操作当前 SSH 端口 ${port}，请务必确认有其他登录通道。"
         confirm "仍要继续关闭 SSH 端口 ${port} 的放行规则?" || return 1
     fi
@@ -804,10 +816,10 @@ menu_firewall_ports_ping() {
         case $sub in
             1) 
                 require_native_firewall_backend "$backend" || continue
-                read -p "端口: " p
+                read -p "端口或范围(示例: 443 / 10000-20000): " p
                 read -p "协议(tcp/udp/all)[tcp]: " proto
                 proto=${proto:-tcp}
-                if ! validate_port "$p"; then
+                if ! validate_port_or_range "${p/:/-}"; then
                     msg_err "端口无效：$p"
                     continue
                 fi
@@ -823,8 +835,8 @@ menu_firewall_ports_ping() {
 
             2)
                 require_native_firewall_backend "$backend" || continue
-                read -p "端口: " p
-                if ! validate_port "$p"; then
+                read -p "端口或范围(示例: 443 / 10000-20000): " p
+                if ! validate_port_or_range "${p/:/-}"; then
                     msg_err "端口无效：$p"
                     continue
                 fi
@@ -841,7 +853,7 @@ menu_firewall_ports_ping() {
             4)
                 require_native_firewall_backend "$backend" || continue
                 confirm "重置规则并仅保留SSH(白名单模式)" || continue
-                read -p "额外保留端口（逗号分隔）: " keep
+                read -p "额外保留端口或范围（逗号分隔，示例: 80,443,10000-20000）: " keep
                 IFS=',' read -ra keep_arr <<< "$keep"
                 firewall_reset_whitelist "$backend" "${keep_arr[@]}"
                 ;;

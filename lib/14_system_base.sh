@@ -81,6 +81,48 @@ validate_protocol() {
     esac
 }
 
+validate_port_or_range() {
+    local spec="$1"
+    local start end
+
+    validate_port "$spec" && return 0
+    if [[ "$spec" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+        start="${BASH_REMATCH[1]}"
+        end="${BASH_REMATCH[2]}"
+        validate_port "$start" || return 1
+        validate_port "$end" || return 1
+        [ "$start" -le "$end" ]
+        return
+    fi
+    return 1
+}
+
+port_spec_to_iptables_dport() {
+    local spec="$1"
+    printf '%s\n' "${spec/-/:}"
+}
+
+port_spec_contains_port() {
+    local spec="$1"
+    local port="$2"
+    local start end
+
+    validate_port "$port" || return 1
+    if validate_port "$spec"; then
+        [ "$spec" = "$port" ]
+        return
+    fi
+    if [[ "$spec" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+        start="${BASH_REMATCH[1]}"
+        end="${BASH_REMATCH[2]}"
+        validate_port "$start" || return 1
+        validate_port "$end" || return 1
+        [ "$port" -ge "$start" ] && [ "$port" -le "$end" ]
+        return
+    fi
+    return 1
+}
+
 normalize_port_spec() {
     local raw="${1:-}"
     local proto port
@@ -97,9 +139,10 @@ normalize_port_spec() {
             ;;
     esac
 
+    port="${port/:/-}"
     validate_protocol "$proto" || return 1
     [ "$proto" = "all" ] && return 1
-    validate_port "$port" || return 1
+    validate_port_or_range "$port" || return 1
     printf '%s:%s\n' "$proto" "$port"
 }
 
@@ -123,20 +166,22 @@ emit_simple_port_specs_from_token() {
 
     [ -n "$token" ] || return 0
 
-    if [[ "$token" =~ ^([0-9]+(?:,[0-9]+)*)/(tcp|udp)$ ]]; then
+    if [[ "$token" =~ ^([^/]+)/(tcp|udp)$ ]]; then
         ports_part="${BASH_REMATCH[1]}"
         proto="${BASH_REMATCH[2]}"
         IFS=',' read -r -a __port_parts <<< "$ports_part"
         for part in "${__port_parts[@]}"; do
-            validate_port "$part" || continue
+            part="${part/:/-}"
+            validate_port_or_range "$part" || continue
             printf '%s:%s\n' "$proto" "$part"
         done
         return 0
     fi
 
-    if [[ "$token" =~ ^([0-9]+)$ ]]; then
+    if [[ "$token" =~ ^([0-9]+([:-][0-9]+)?)$ ]]; then
         part="${BASH_REMATCH[1]}"
-        validate_port "$part" || return 0
+        part="${part/:/-}"
+        validate_port_or_range "$part" || return 0
         case "$default_proto" in
             all)
                 printf 'tcp:%s\n' "$part"
@@ -162,8 +207,9 @@ collect_simple_open_port_specs_from_iptables_cmd() {
         port=""
         [[ "$rule" =~ [[:space:]]-p[[:space:]](tcp|udp)([[:space:]]|$) ]] && proto="${BASH_REMATCH[1]}"
         [ -n "$proto" ] || continue
-        [[ "$rule" =~ [[:space:]]--dport[[:space:]]([0-9]+)([[:space:]]|$) ]] || continue
+        [[ "$rule" =~ [[:space:]]--dport[[:space:]]([0-9]+(:[0-9]+)?)([[:space:]]|$) ]] || continue
         port="${BASH_REMATCH[1]}"
+        port="${port/:/-}"
         printf '%s:%s\n' "$proto" "$port"
     done < <("$cmd" -S "$chain" 2>/dev/null || true)
 }
@@ -176,7 +222,7 @@ collect_simple_open_port_specs_from_nft() {
 
     while IFS= read -r rule; do
         [[ "$rule" == *" accept"* ]] || continue
-        [[ "$rule" =~ (^|[[:space:]])(tcp|udp)[[:space:]]+dport[[:space:]]+([0-9]+)([[:space:]]|$) ]] || continue
+        [[ "$rule" =~ (^|[[:space:]])(tcp|udp)[[:space:]]+dport[[:space:]]+([0-9]+(-[0-9]+)?)([[:space:]]|$) ]] || continue
         proto="${BASH_REMATCH[2]}"
         port="${BASH_REMATCH[3]}"
         printf '%s:%s\n' "$proto" "$port"
@@ -369,7 +415,7 @@ reset_managed_filter_chain_rules() {
         proto="${normalized%%:*}"
         port="${normalized#*:}"
         [ "$proto" = "tcp" ] && [ "$port" = "$sshport" ] && continue
-        "$cmd" -A "$chain" -p "$proto" -m "$proto" --dport "$port" -j ACCEPT || return 1
+        "$cmd" -A "$chain" -p "$proto" -m "$proto" --dport "$(port_spec_to_iptables_dport "$port")" -j ACCEPT || return 1
     done
 
     "$cmd" -A "$chain" -j DROP || return 1
