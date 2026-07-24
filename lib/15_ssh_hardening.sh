@@ -333,6 +333,231 @@ apply_ssh_key_only_login_config() {
     msg_warn "请立即新开终端测试密钥登录，确认成功后再关闭当前会话。"
 }
 
+get_ssh_login_banner_status() {
+    if [ -f "$SSH_LOGIN_BANNER_PROFILE_FILE" ]; then
+        echo "已启用"
+    else
+        echo "未启用"
+    fi
+}
+
+install_ssh_login_banner() {
+    local target="$SSH_LOGIN_BANNER_PROFILE_FILE"
+    local backup_path=""
+
+    mkdir -p /etc/profile.d || {
+        msg_err "创建 /etc/profile.d 失败。"
+        return 1
+    }
+
+    if [ -f "$target" ]; then
+        backup_path="${target}.bak.$(date +%F_%H%M%S)"
+        cp -af "$target" "$backup_path" || {
+            msg_err "备份旧 Banner 脚本失败：${target}"
+            return 1
+        }
+    fi
+
+    cat > "$target" <<'EOF'
+# Managed by VPS init suite.
+# SSH-only dynamic login banner. This intentionally does not modify
+# /etc/motd, /etc/issue, /etc/update-motd.d, or package-managed files.
+
+if [ -n "${VPS_SSH_LOGIN_BANNER_SHOWN:-}" ]; then
+    return 0 2>/dev/null || exit 0
+fi
+
+case "$-" in
+    *i*) ;;
+    *) return 0 2>/dev/null || exit 0 ;;
+esac
+
+[ -n "${SSH_CONNECTION:-}${SSH_TTY:-}" ] || return 0 2>/dev/null || exit 0
+export VPS_SSH_LOGIN_BANNER_SHOWN=1
+
+vps_banner_os() {
+    if [ -r /etc/os-release ]; then
+        . /etc/os-release
+        printf '%s\n' "${PRETTY_NAME:-unknown}"
+    else
+        printf 'unknown\n'
+    fi
+}
+
+vps_banner_uptime() {
+    if [ -r /proc/uptime ]; then
+        read -r up _ < /proc/uptime
+        up=${up%.*}
+        days=$((up / 86400))
+        hours=$(((up % 86400) / 3600))
+        mins=$(((up % 3600) / 60))
+        if [ "$days" -gt 0 ]; then
+            printf '%sd %sh %sm\n' "$days" "$hours" "$mins"
+        else
+            printf '%sh %sm\n' "$hours" "$mins"
+        fi
+    else
+        printf 'N/A\n'
+    fi
+}
+
+vps_banner_memory() {
+    total=0
+    available=0
+    if [ -r /proc/meminfo ]; then
+        while read -r key value unit; do
+            case "$key" in
+                MemTotal:) total=$value ;;
+                MemAvailable:) available=$value ;;
+            esac
+        done < /proc/meminfo
+    fi
+
+    if [ "$total" -gt 0 ]; then
+        used=$((total - available))
+        percent=$((used * 100 / total))
+        printf '%s/%s MiB (%s%%)\n' "$((used / 1024))" "$((total / 1024))" "$percent"
+    else
+        printf 'N/A\n'
+    fi
+}
+
+vps_banner_disk() {
+    if command -v df >/dev/null 2>&1; then
+        df -hP / 2>/dev/null | awk 'NR == 2 { print $3 "/" $2 " (" $5 ")" }'
+    else
+        printf 'N/A\n'
+    fi
+}
+
+vps_banner_load() {
+    if [ -r /proc/loadavg ]; then
+        read -r load_1 load_5 load_15 _ < /proc/loadavg
+        printf '%s %s %s\n' "$load_1" "$load_5" "$load_15"
+    else
+        printf 'N/A\n'
+    fi
+}
+
+vps_banner_ipv4() {
+    if command -v ip >/dev/null 2>&1; then
+        primary_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '
+            {
+                for (i = 1; i <= NF; i++) {
+                    if ($i == "src") {
+                        print $(i + 1)
+                        exit
+                    }
+                }
+            }
+        ')
+        if [ -n "$primary_ip" ]; then
+            printf '%s\n' "$primary_ip"
+            return
+        fi
+
+        ip -o -4 addr show scope global 2>/dev/null | awk '
+            $2 ~ /^(lo|docker|br-|veth|virbr|wg|tun|tap)/ { next }
+            {
+                split($4, addr, "/")
+                out = out ? out ", " addr[1] : addr[1]
+            }
+            END { print out ? out : "N/A" }
+        '
+    elif command -v hostname >/dev/null 2>&1; then
+        hostname -I 2>/dev/null | awk '
+            {
+                for (i = 1; i <= NF; i++) {
+                    if ($i ~ /^[0-9]+\./) {
+                        out = out ? out ", " $i : $i
+                    }
+                }
+            }
+            END { print out ? out : "N/A" }
+        '
+    else
+        printf 'N/A\n'
+    fi
+}
+
+vps_banner_source_ip() {
+    if [ -n "${SSH_CONNECTION:-}" ]; then
+        set -- $SSH_CONNECTION
+        printf '%s\n' "${1:-N/A}"
+    else
+        printf 'N/A\n'
+    fi
+}
+
+vps_banner_color_init() {
+    if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ]; then
+        c_reset="$(printf '\033[0m')"
+        c_dim="$(printf '\033[2m')"
+        c_bold="$(printf '\033[1m')"
+        c_cyan="$(printf '\033[36m')"
+        c_green="$(printf '\033[32m')"
+        c_yellow="$(printf '\033[33m')"
+        c_blue="$(printf '\033[34m')"
+    else
+        c_reset=''
+        c_dim=''
+        c_bold=''
+        c_cyan=''
+        c_green=''
+        c_yellow=''
+        c_blue=''
+    fi
+}
+
+vps_banner_row() {
+    printf '%b|%b %b%s%b %s\n' "$c_blue" "$c_reset" "$c_dim" "$1" "$c_reset" "$2"
+}
+
+vps_banner_color_init
+banner_host="$(hostname 2>/dev/null || printf 'unknown')"
+banner_os="$(vps_banner_os)"
+banner_kernel="$(uname -r 2>/dev/null || printf 'unknown')"
+banner_time="$(date '+%F %T %Z' 2>/dev/null || printf 'unknown')"
+banner_uptime="$(vps_banner_uptime)"
+banner_load="$(vps_banner_load)"
+banner_memory="$(vps_banner_memory)"
+banner_disk="$(vps_banner_disk)"
+banner_ipv4="$(vps_banner_ipv4)"
+banner_source_ip="$(vps_banner_source_ip)"
+
+printf '\n'
+printf '%b+------------------------------------------------------------+%b\n' "$c_blue" "$c_reset"
+printf '%b|%b %bVPS SSH 登录%b\n' "$c_blue" "$c_reset" "$c_bold$c_cyan" "$c_reset"
+printf '%b|%b %b%s@%s%b\n' "$c_blue" "$c_reset" "$c_green" "${USER:-unknown}" "$banner_host" "$c_reset"
+printf '%b+------------------------------------------------------------+%b\n' "$c_blue" "$c_reset"
+vps_banner_row "系统      " "$banner_os"
+vps_banner_row "内核      " "$banner_kernel"
+vps_banner_row "时间      " "$banner_time"
+printf '%b+-------------------------- 运行状态 --------------------------+%b\n' "$c_blue" "$c_reset"
+vps_banner_row "运行时间  " "$banner_uptime"
+vps_banner_row "负载      " "$banner_load"
+vps_banner_row "内存      " "$banner_memory"
+vps_banner_row "根分区    " "$banner_disk"
+printf '%b+-------------------------- 网络信息 --------------------------+%b\n' "$c_blue" "$c_reset"
+vps_banner_row "IPv4      " "$banner_ipv4"
+vps_banner_row "来源 IP   " "$banner_source_ip"
+printf '%b+------------------------------------------------------------+%b\n' "$c_blue" "$c_reset"
+printf '%b|%b %b请先新开终端验证 SSH 登录成功，再关闭当前会话。%b\n' "$c_blue" "$c_reset" "$c_yellow" "$c_reset"
+printf '%b+------------------------------------------------------------+%b\n' "$c_blue" "$c_reset"
+printf '\n'
+EOF
+
+    chmod 644 "$target" || {
+        msg_err "设置 Banner 脚本权限失败：${target}"
+        return 1
+    }
+
+    msg_ok "SSH 动态登录 Banner 已启用：${target}"
+    msg_info "实现方式：仅 SSH 交互登录时由 /etc/profile.d 脚本动态输出。"
+    msg_info "未修改 /etc/motd、/etc/issue 或 /etc/update-motd.d，不影响系统更新。"
+    [ -n "$backup_path" ] && msg_warn "旧文件已备份：${backup_path}"
+}
+
 handle_selinux_ssh_port() {
     local port="$1"
     local pkg_mgr

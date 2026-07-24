@@ -65,6 +65,7 @@ menu_security_hardening() {
         status_pair "Fail2Ban" "$(check_fail2ban)"
         status_pair "SSH_PORT" "$(get_current_ssh_ports_csv)"
         status_pair "ROOT_LOGIN" "${root_s:-"yes"}"
+        status_pair "SSH_BANNER" "$(get_ssh_login_banner_status)"
         draw_line
 
         menu_section "用户与 SSH"
@@ -72,6 +73,7 @@ menu_security_hardening() {
         menu_pair "[3] 允许Root登录" "[4] 禁用Root登录"
         menu_pair "[5] 允许密码登录" "[6] 禁用密码登录"
         menu_pair "[B] 仅允许SSH密钥登录"
+        menu_pair "[C] 添加SSH登录Banner"
 
         menu_section "Fail2Ban"
         menu_pair "[7] 安装/配置Fail2Ban" "[9] 查看状态/封禁详情"
@@ -219,6 +221,12 @@ menu_security_hardening() {
                 fi
                 if confirm "启用仅 SSH 密钥登录（将禁用密码登录、键盘交互认证和空密码）?"; then
                     apply_ssh_key_only_login_config "$allow_users"
+                else
+                    msg_warn "操作已取消"
+                fi ;;
+            C|c)
+                if confirm "添加/更新 SSH 动态登录 Banner（无依赖，不修改系统 motd/update-motd 文件）?"; then
+                    install_ssh_login_banner
                 else
                     msg_warn "操作已取消"
                 fi ;;

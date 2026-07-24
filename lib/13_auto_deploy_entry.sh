@@ -1,11 +1,11 @@
 # [全自动一键部署] 入口函数
-# 流程：更新索引 → SSH → 工具 → 用户 → 证书 → SSH安全配置 → DNS → 终端美化 → 防火墙 → 输出结果
+# 流程：更新索引 → SSH → 工具 → 用户 → 证书 → SSH安全配置 → SSH登录Banner → DNS → 终端美化 → 防火墙 → 输出结果
 # 设计原则：每步独立，关键步骤失败则终止（return 1），非关键步骤失败跳过（|| true）
 # ==============================================================================
 run_inlined_auto_deploy() {
     local ssh_backup current_port system_pretty_name
     local step=1
-    local total_steps=10
+    local total_steps=11
 
     collect_auto_deploy_inputs || return 1
 
@@ -71,21 +71,28 @@ run_inlined_auto_deploy() {
         change_ssh_port_safely "$AUTO_DEPLOY_SSH_PORT" "SSH 安全配置已应用" 1 "$ssh_backup" || return 1
     fi
 
-    # 步骤 7: DNS 解析优化（配置 8.8.8.8 + 1.1.1.1，非关键步骤）
+    # 步骤 7: SSH 动态登录 Banner（无依赖，不修改系统 motd/update-motd 文件）
+    printf "\n"
+    draw_line
+    msg_info "[全自动] 步骤 ${step}/${total_steps}: 添加 SSH 动态登录 Banner"
+    step=$((step + 1))
+    install_ssh_login_banner || true
+
+    # 步骤 8: DNS 解析优化（配置 8.8.8.8 + 1.1.1.1，非关键步骤）
     printf "\n"
     draw_line
     msg_info "[全自动] 步骤 ${step}/${total_steps}: DNS 解析优化"
     step=$((step + 1))
     apply_dns_optimization || true
 
-    # 步骤 8: 终端环境美化（彩色 PS1 + 实用别名，非关键步骤）
+    # 步骤 9: 终端环境美化（彩色 PS1 + 实用别名，非关键步骤）
     printf "\n"
     draw_line
     msg_info "[全自动] 步骤 ${step}/${total_steps}: 终端环境美化"
     step=$((step + 1))
     apply_terminal_beautification || true
 
-    # 步骤 9: 配置 iptables 防火墙（先识别并保留当前已放行端口，再切换为托管白名单模式）
+    # 步骤 10: 配置 iptables 防火墙（先识别并保留当前已放行端口，再切换为托管白名单模式）
     printf "\n"
     draw_line
     msg_info "[全自动] 步骤 ${step}/${total_steps}: 配置 iptables 防火墙"
@@ -93,7 +100,7 @@ run_inlined_auto_deploy() {
     enable_iptables || return 1
     show_auto_deploy_iptables_rules
 
-    # 步骤 10: 输出部署摘要（系统版本、端口、用户密码、防火墙策略等）
+    # 步骤 11: 输出部署摘要（系统版本、端口、用户密码、防火墙策略等）
     system_pretty_name=$(awk -F= '/^PRETTY_NAME=/{gsub(/^"|"$/,"",$2); print $2; exit}' /etc/os-release 2>/dev/null)
 
     printf "\n"
@@ -108,6 +115,7 @@ run_inlined_auto_deploy() {
     status_pair "root 密码" "已设置"
     status_pair "常用工具" "$(get_common_ops_tools_summary)"
     status_pair "证书目录" "${SSHL_CERTS_DIR}"
+    status_pair "SSH Banner" "$(get_ssh_login_banner_status)"
     status_pair "DNS" "$(get_dns_status)"
     status_pair "防火墙策略" "允许 ping，保留当前已开放端口，并确保放行入站 TCP/${AUTO_DEPLOY_SSH_PORT}"
     status_pair "sshd 备份" "${AUTO_DEPLOY_LAST_SSH_BACKUP}"
