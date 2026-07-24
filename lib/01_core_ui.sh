@@ -549,12 +549,22 @@ prepare_main_sshd_config_for_managed_mode() {
     sed -ri \
         -e '/^[[:space:]]*#/! s/^[[:space:]]*(Port[[:space:]]+.*)$/# \1/I' \
         -e '/^[[:space:]]*#/! s/^[[:space:]]*(PasswordAuthentication[[:space:]]+.*)$/# \1/I' \
+        -e '/^[[:space:]]*#/! s/^[[:space:]]*(KbdInteractiveAuthentication[[:space:]]+.*)$/# \1/I' \
+        -e '/^[[:space:]]*#/! s/^[[:space:]]*(ChallengeResponseAuthentication[[:space:]]+.*)$/# \1/I' \
+        -e '/^[[:space:]]*#/! s/^[[:space:]]*(PubkeyAuthentication[[:space:]]+.*)$/# \1/I' \
+        -e '/^[[:space:]]*#/! s/^[[:space:]]*(AuthenticationMethods[[:space:]]+.*)$/# \1/I' \
+        -e '/^[[:space:]]*#/! s/^[[:space:]]*(PermitEmptyPasswords[[:space:]]+.*)$/# \1/I' \
         -e '/^[[:space:]]*#/! s/^[[:space:]]*(PermitRootLogin[[:space:]]+.*)$/# \1/I' \
         -e '/^[[:space:]]*#/! s/^[[:space:]]*(AllowUsers[[:space:]]+.*)$/# \1/I' \
         /etc/ssh/sshd_config
 
     delete_sshd_directive "Port"
     delete_sshd_directive "PasswordAuthentication"
+    delete_sshd_directive "KbdInteractiveAuthentication"
+    delete_sshd_directive "ChallengeResponseAuthentication"
+    delete_sshd_directive "PubkeyAuthentication"
+    delete_sshd_directive "AuthenticationMethods"
+    delete_sshd_directive "PermitEmptyPasswords"
     delete_sshd_directive "PermitRootLogin"
     delete_sshd_directive "AllowUsers"
 }

@@ -71,6 +71,7 @@ menu_security_hardening() {
         menu_pair "[1] 创建管理用户" "[2] 修改SSH登录端口"
         menu_pair "[3] 允许Root登录" "[4] 禁用Root登录"
         menu_pair "[5] 允许密码登录" "[6] 禁用密码登录"
+        menu_pair "[B] 仅允许SSH密钥登录"
 
         menu_section "Fail2Ban"
         menu_pair "[7] 安装/配置Fail2Ban" "[9] 查看状态/封禁详情"
@@ -198,6 +199,26 @@ menu_security_hardening() {
                     fi
                     set_sshd_directive "PasswordAuthentication" "no"
                     apply_sshd_changes "已禁用密码登录" "$ssh_backup"
+                else
+                    msg_warn "操作已取消"
+                fi ;;
+            B|b)
+                read -r -p "允许密钥登录的用户名（可多个空格分隔；留空不限制用户）: " allow_users
+                if [ -n "$allow_users" ]; then
+                    invalid_user=""
+                    for input_user in $allow_users; do
+                        if [[ ! "$input_user" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]]; then
+                            invalid_user="$input_user"
+                            break
+                        fi
+                    done
+                    if [ -n "$invalid_user" ]; then
+                        msg_err "用户名格式无效：${invalid_user}"
+                        continue
+                    fi
+                fi
+                if confirm "启用仅 SSH 密钥登录（将禁用密码登录、键盘交互认证和空密码）?"; then
+                    apply_ssh_key_only_login_config "$allow_users"
                 else
                     msg_warn "操作已取消"
                 fi ;;

@@ -194,6 +194,145 @@ ensure_user_in_admin_group() {
     fi
 }
 
+get_user_home_dir() {
+    local username="$1"
+    getent passwd "$username" | awk -F: '{print $6; exit}'
+}
+
+get_user_primary_group() {
+    local username="$1"
+    getent passwd "$username" | awk -F: '{print $4; exit}'
+}
+
+is_valid_ssh_public_key() {
+    local public_key="$1"
+    [[ "$public_key" =~ ^(sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com|ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)[[:space:]]+[A-Za-z0-9+/=]+([[:space:]].*)?$ ]]
+}
+
+authorized_keys_has_public_key() {
+    local auth_file="$1"
+    [ -f "$auth_file" ] || return 1
+
+    awk '
+        /^[[:space:]]*($|#)/ { next }
+        /(^|[[:space:],])(sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com|ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)[[:space:]]+[A-Za-z0-9+\/=]+/ {
+            found=1
+            exit
+        }
+        END { exit(found ? 0 : 1) }
+    ' "$auth_file"
+}
+
+fix_user_ssh_key_permissions() {
+    local username="$1"
+    local home_dir="$2"
+    local ssh_dir="${home_dir}/.ssh"
+    local auth_file="${ssh_dir}/authorized_keys"
+    local primary_group
+
+    primary_group=$(get_user_primary_group "$username")
+    [ -n "$primary_group" ] || primary_group="$username"
+
+    mkdir -p "$ssh_dir" || return 1
+    touch "$auth_file" || return 1
+    chown "$username:$primary_group" "$ssh_dir" "$auth_file" 2>/dev/null || chown "$username" "$ssh_dir" "$auth_file"
+    chmod 700 "$ssh_dir"
+    chmod 600 "$auth_file"
+}
+
+ensure_user_has_ssh_public_key() {
+    local username="$1"
+    local home_dir ssh_dir auth_file public_key
+
+    if ! id "$username" >/dev/null 2>&1; then
+        msg_err "用户不存在：${username}"
+        return 1
+    fi
+
+    home_dir=$(get_user_home_dir "$username")
+    if [ -z "$home_dir" ] || [ ! -d "$home_dir" ]; then
+        msg_err "用户 ${username} 的 Home 目录不存在：${home_dir:-未知}"
+        return 1
+    fi
+
+    ssh_dir="${home_dir}/.ssh"
+    auth_file="${ssh_dir}/authorized_keys"
+
+    if authorized_keys_has_public_key "$auth_file"; then
+        fix_user_ssh_key_permissions "$username" "$home_dir" || {
+            msg_err "修复 ${auth_file} 权限失败。"
+            return 1
+        }
+        msg_ok "已检测到 ${username} 的 authorized_keys，并修复权限。"
+        return 0
+    fi
+
+    msg_warn "未检测到 ${username} 的可用 SSH 公钥：${auth_file}"
+    if ! confirm "现在为 ${username} 粘贴一条 SSH 公钥，否则启用仅密钥登录可能导致无法登录"; then
+        msg_err "已取消：没有可用公钥，未应用仅密钥登录配置。"
+        return 1
+    fi
+
+    while true; do
+        read -r -p "请粘贴 SSH 公钥: " public_key
+        if is_valid_ssh_public_key "$public_key"; then
+            break
+        fi
+        msg_warn "公钥格式无效，请粘贴 ssh-ed25519 / ssh-rsa / ecdsa / FIDO sk-* 开头的单行公钥。"
+    done
+
+    fix_user_ssh_key_permissions "$username" "$home_dir" || {
+        msg_err "创建或修复 ${auth_file} 权限失败。"
+        return 1
+    }
+    printf '%s\n' "$public_key" >> "$auth_file"
+    fix_user_ssh_key_permissions "$username" "$home_dir" || return 1
+    msg_ok "已写入 ${auth_file}"
+}
+
+apply_ssh_key_only_login_config() {
+    local allow_users="$1"
+    local ssh_backup username
+
+    ensure_ssh_server_installed || return 1
+
+    for username in $allow_users; do
+        ensure_user_has_ssh_public_key "$username" || return 1
+    done
+
+    if [ -z "$allow_users" ]; then
+        msg_warn "未指定 AllowUsers，将仅限制认证方式，不额外限制可登录用户。"
+    fi
+
+    ssh_backup=$(backup_file_with_timestamp /etc/ssh/sshd_config) || {
+        msg_err "备份 sshd 配置失败。"
+        return 1
+    }
+
+    set_sshd_directive "PubkeyAuthentication" "yes"
+    set_sshd_directive "PasswordAuthentication" "no"
+    set_sshd_directive "KbdInteractiveAuthentication" "no"
+    set_sshd_directive "ChallengeResponseAuthentication" "no"
+    set_sshd_directive "PermitEmptyPasswords" "no"
+    set_sshd_directive "AuthenticationMethods" "publickey"
+
+    if [ -n "$allow_users" ]; then
+        set_sshd_directive "AllowUsers" "$allow_users"
+        if [[ " ${allow_users} " == *" root "* ]]; then
+            set_sshd_directive "PermitRootLogin" "prohibit-password"
+        fi
+    else
+        delete_sshd_directive "AllowUsers"
+    fi
+
+    apply_sshd_changes "已启用仅 SSH 密钥登录" "$ssh_backup" || return 1
+
+    if [ -n "$allow_users" ]; then
+        msg_info "允许的密钥登录用户: ${allow_users}"
+    fi
+    msg_warn "请立即新开终端测试密钥登录，确认成功后再关闭当前会话。"
+}
+
 handle_selinux_ssh_port() {
     local port="$1"
     local pkg_mgr
