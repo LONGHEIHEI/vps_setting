@@ -81,6 +81,23 @@ validate_protocol() {
     esac
 }
 
+validate_hostname_value() {
+    local hostname="$1"
+    local label
+
+    [ -n "$hostname" ] || return 1
+    [ "${#hostname}" -le 253 ] || return 1
+    [[ "$hostname" != *..* ]] || return 1
+
+    IFS='.' read -ra labels <<< "$hostname"
+    for label in "${labels[@]}"; do
+        [ -n "$label" ] || return 1
+        [ "${#label}" -le 63 ] || return 1
+        [[ "$label" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ ]] || return 1
+    done
+    return 0
+}
+
 validate_port_or_range() {
     local spec="$1"
     local start end

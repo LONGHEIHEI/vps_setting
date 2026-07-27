@@ -419,7 +419,7 @@ quarantine_legacy_iptables_rule_files() {
 enable_iptables() {
     msg_info "正在准备启用 iptables 持久化服务..."
     local preserved_specs=()
-    local spec
+    local spec backup_dir backup_ts
 
     # 1. 识别系统并安装相应的持久化包
     if ! command -v iptables-restore >/dev/null 2>&1; then
@@ -461,6 +461,12 @@ enable_iptables() {
         fi
     done
     if command -v nft >/dev/null 2>&1; then
+        backup_ts=$(date +%F_%H%M%S)
+        backup_dir="${SUITE_BACKUP_DIR:-/var/backups/vps-init-suite}/firewall"
+        mkdir -p "$backup_dir" 2>/dev/null || true
+        nft list ruleset > "${backup_dir}/nft-ruleset.bak.${backup_ts}.$$" 2>/dev/null || true
+        [ -f /etc/nftables.conf ] && cp -af /etc/nftables.conf "${backup_dir}/nftables.conf.bak.${backup_ts}.$$" 2>/dev/null || true
+        msg_info "nftables 规则已备份到：${backup_dir}"
         nft flush ruleset >/dev/null 2>&1 || true
         printf '#!/usr/sbin/nft -f\nflush ruleset\n' > /etc/nftables.conf 2>/dev/null || true
     fi
@@ -534,4 +540,3 @@ init_iptable_rule() {
     set_firewall_backend_state iptables
     msg_ok "iptables 初始化完成（托管白名单模式，已开放 SSH:${sshport}，并保留已识别的放行端口）"
 }
-

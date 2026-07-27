@@ -26,6 +26,11 @@ menu_base_config() {
             1)
                 read -p "新主机名: " hn
                 if [ -n "$hn" ]; then
+                    if ! validate_hostname_value "$hn"; then
+                        msg_err "主机名格式无效：仅允许字母、数字、短横线和点，且每段需以字母或数字开头/结尾。"
+                        pause
+                        continue
+                    fi
                     if hostnamectl set-hostname "$hn"; then
                         if grep -qE '^127\.0\.1\.1([[:space:]]|$)' /etc/hosts; then
                             sed -i -E "s/^127\.0\.1\.1([[:space:]].*)?$/127.0.1.1 ${hn}/" /etc/hosts
@@ -806,7 +811,7 @@ menu_firewall_service_init() {
     while true; do
         clear
         backend=$(detect_firewall_backend)
-        menu_header "4.1 服务与初始化"
+        menu_header "3.1 服务与初始化"
         show_firewall_status "$backend"
         draw_line
         menu_pair "[1] 启用Iptables" "[2] 初始化Iptables规则"
@@ -836,7 +841,7 @@ menu_firewall_ports_ping() {
     while true; do
         clear
         backend=$(detect_firewall_backend)
-        menu_header "4.2 端口与连通性"
+        menu_header "3.2 端口与连通性"
         show_firewall_status "$backend"
         draw_line
         menu_pair "[1] 开放指定端口" "[2] 关闭指定端口"
@@ -908,7 +913,7 @@ menu_firewall_access_policy() {
     while true; do
         clear
         backend=$(detect_firewall_backend)
-        menu_header "4.3 访问控制与策略"
+        menu_header "3.3 访问控制与策略"
         show_firewall_status "$backend"
         draw_line
         menu_pair "[1] 加入IP白名单" "[2] 加入IP黑名单"
@@ -957,7 +962,7 @@ menu_firewall_docker() {
 
     while true; do
         clear
-        menu_header "4.4 Docker隔离"
+        menu_header "3.4 Docker隔离"
         draw_line
         menu_pair "[1] Docker容器隔离" "[2] 查看Docker配置"
         menu_pair "[3] 追加Docker端口"

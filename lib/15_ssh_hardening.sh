@@ -69,11 +69,18 @@ cleanup_ssh_socket_activation() {
 
 backup_file_with_timestamp() {
     local target_file="$1"
-    local backup_path="${target_file}.bak.$(date +%F_%H%M%S)"
+    local backup_root="${SUITE_BACKUP_DIR:-/var/backups/vps-init-suite}"
+    local safe_name backup_path
+
+    [ -e "$target_file" ] || return 1
+    safe_name=$(printf '%s\n' "$target_file" | sed 's#^/##; s#[^A-Za-z0-9._-]#_#g')
+    backup_path="${backup_root}/${safe_name}.bak.$(date +%F_%H%M%S).$$"
+    mkdir -p "$backup_root" || return 1
     cp -af "$target_file" "$backup_path"
     if [ "$target_file" = "/etc/ssh/sshd_config" ]; then
         if [ -f "$SSHD_MANAGED_OVERRIDE_FILE" ]; then
-            LAST_SSHD_OVERRIDE_BACKUP="${SSHD_MANAGED_OVERRIDE_FILE}.bak.$(date +%F_%H%M%S)"
+            safe_name=$(printf '%s\n' "$SSHD_MANAGED_OVERRIDE_FILE" | sed 's#^/##; s#[^A-Za-z0-9._-]#_#g')
+            LAST_SSHD_OVERRIDE_BACKUP="${backup_root}/${safe_name}.bak.$(date +%F_%H%M%S).$$"
             cp -af "$SSHD_MANAGED_OVERRIDE_FILE" "$LAST_SSHD_OVERRIDE_BACKUP"
         else
             LAST_SSHD_OVERRIDE_BACKUP="__ABSENT__"
@@ -129,20 +136,74 @@ restore_sshd_backup_state() {
     esac
 }
 
+backup_ssh_banner_file() {
+    local target="$SSH_LOGIN_BANNER_PROFILE_FILE"
+
+    if [ -f "$target" ]; then
+        LAST_SSH_BANNER_BACKUP=$(backup_file_with_timestamp "$target") || return 1
+    else
+        LAST_SSH_BANNER_BACKUP="__ABSENT__"
+    fi
+}
+
+restore_ssh_banner_backup_state() {
+    local target="$SSH_LOGIN_BANNER_PROFILE_FILE"
+
+    case "$LAST_SSH_BANNER_BACKUP" in
+        "__ABSENT__")
+            rm -f "$target"
+            ;;
+        "")
+            ;;
+        *)
+            [ -f "$LAST_SSH_BANNER_BACKUP" ] && cp -af "$LAST_SSH_BANNER_BACKUP" "$target"
+            ;;
+    esac
+}
+
+restore_ssh_pam_backup_state() {
+    case "$LAST_SSH_PAM_BACKUP" in
+        "__ABSENT__")
+            rm -f /etc/pam.d/sshd
+            ;;
+        "")
+            ;;
+        *)
+            [ -f "$LAST_SSH_PAM_BACKUP" ] && cp -af "$LAST_SSH_PAM_BACKUP" /etc/pam.d/sshd
+            ;;
+    esac
+}
+
+restore_ssh_login_message_backup_state() {
+    local ssh_backup="${1:-}"
+    local ssh_service
+
+    restore_sshd_backup_state "$ssh_backup"
+    restore_ssh_pam_backup_state
+    restore_ssh_banner_backup_state
+
+    ssh_service=$(get_ssh_service_name)
+    restart_ssh_service "$ssh_service" >/dev/null 2>&1 || true
+}
+
 set_sshd_directive() {
     local key="$1"
     local value="$2"
     local config_file="${3:-$SSHD_MANAGED_OVERRIDE_FILE}"
-    [ "$config_file" = "$SSHD_MANAGED_OVERRIDE_FILE" ] && ensure_sshd_managed_override_include
-    sed -i "/^[[:space:]#]*${key}[[:space:]]\\+/Id" "$config_file"
-    printf '%s %s\n' "$key" "$value" >> "$config_file"
+    if [ "$config_file" = "$SSHD_MANAGED_OVERRIDE_FILE" ]; then
+        ensure_sshd_managed_override_include || return 1
+    fi
+    sed -i "/^[[:space:]#]*${key}[[:space:]]\\+/Id" "$config_file" || return 1
+    printf '%s %s\n' "$key" "$value" >> "$config_file" || return 1
 }
 
 delete_sshd_directive() {
     local key="$1"
     local config_file="${2:-$SSHD_MANAGED_OVERRIDE_FILE}"
-    [ "$config_file" = "$SSHD_MANAGED_OVERRIDE_FILE" ] && ensure_sshd_managed_override_include
-    sed -i "/^[[:space:]#]*${key}[[:space:]]\\+/Id" "$config_file"
+    if [ "$config_file" = "$SSHD_MANAGED_OVERRIDE_FILE" ]; then
+        ensure_sshd_managed_override_include || return 1
+    fi
+    sed -i "/^[[:space:]#]*${key}[[:space:]]\\+/Id" "$config_file" || return 1
 }
 
 disable_ssh_pam_motd() {
@@ -156,6 +217,7 @@ disable_ssh_pam_motd() {
         msg_err "备份 sshd PAM 配置失败：${pam_file}"
         return 1
     }
+    LAST_SSH_PAM_BACKUP="$backup_path"
 
     tmp_file=$(mktemp) || {
         msg_err "创建临时文件失败，无法调整 sshd PAM MOTD。"
@@ -188,11 +250,11 @@ disable_ssh_pam_motd() {
 disable_ssh_builtin_login_messages() {
     local ssh_service
 
-    set_sshd_directive "PrintMotd" "no"
-    set_sshd_directive "PrintLastLog" "no"
+    set_sshd_directive "PrintMotd" "no" || return 1
+    set_sshd_directive "PrintLastLog" "no" || return 1
 
     if command -v sshd >/dev/null 2>&1 && sshd -T 2>/dev/null | grep -qi '^debianbanner '; then
-        set_sshd_directive "DebianBanner" "no"
+        set_sshd_directive "DebianBanner" "no" || return 1
     fi
 
     disable_ssh_pam_motd || return 1
@@ -455,27 +517,41 @@ get_ssh_login_banner_status() {
 
 install_ssh_login_banner() {
     local target="$SSH_LOGIN_BANNER_PROFILE_FILE"
-    local backup_path=""
+    local ssh_backup=""
 
-    disable_ssh_builtin_login_messages || msg_warn "系统自带 SSH 登录信息静默失败，请稍后手动检查 sshd/PAM 配置。"
-
-    mkdir -p /etc/profile.d || {
-        msg_err "创建 /etc/profile.d 失败。"
+    ssh_backup=$(backup_file_with_timestamp /etc/ssh/sshd_config) || {
+        msg_err "备份 sshd 配置失败。"
+        return 1
+    }
+    LAST_SSH_PAM_BACKUP=""
+    LAST_SSH_BANNER_BACKUP=""
+    backup_ssh_banner_file || {
+        msg_err "备份旧 Banner 脚本失败：${target}"
         return 1
     }
 
-    if [ -f "$target" ]; then
-        backup_path="${target}.bak.$(date +%F_%H%M%S)"
-        cp -af "$target" "$backup_path" || {
-            msg_err "备份旧 Banner 脚本失败：${target}"
-            return 1
-        }
-    fi
+    disable_ssh_builtin_login_messages || {
+        msg_err "系统自带 SSH 登录信息静默失败，正在回滚。"
+        restore_ssh_login_message_backup_state "$ssh_backup"
+        return 1
+    }
 
-    cat > "$target" <<'EOF'
+    mkdir -p /etc/profile.d || {
+        msg_err "创建 /etc/profile.d 失败。"
+        restore_ssh_login_message_backup_state "$ssh_backup"
+        return 1
+    }
+
+    cat > "$target" <<'EOF' || {
 # Managed by VPS init suite.
 # SSH-only dynamic login banner. System MOTD and LastLog are silenced
 # separately by the installer so this banner remains the only login notice.
+
+_vps_ssh_login_banner_main() {
+local up days hours mins total available used percent primary_ip
+local c_reset c_dim c_bold c_cyan c_green c_yellow c_blue
+local banner_host banner_os banner_kernel banner_time banner_uptime banner_load
+local banner_memory banner_disk banner_ipv4 banner_ipv6 banner_source_ip
 
 if [ -n "${VPS_SSH_LOGIN_BANNER_SHOWN:-}" ]; then
     return 0 2>/dev/null || exit 0
@@ -700,17 +776,35 @@ vps_banner_row "IPv6      " "$banner_ipv6"
 vps_banner_row "来源 IP   " "$banner_source_ip"
 printf '%b+------------------------------------------------------------+%b\n' "$c_blue" "$c_reset"
 printf '\n'
+}
+
+_vps_ssh_login_banner_main
+unset -f _vps_ssh_login_banner_main
+unset -f vps_banner_os vps_banner_uptime vps_banner_memory vps_banner_disk vps_banner_load vps_banner_ipv4 vps_banner_ipv6 vps_banner_source_ip vps_banner_color_init vps_banner_row
 EOF
+        msg_err "写入 Banner 脚本失败：${target}"
+        restore_ssh_login_message_backup_state "$ssh_backup"
+        return 1
+    }
 
     chmod 644 "$target" || {
         msg_err "设置 Banner 脚本权限失败：${target}"
+        restore_ssh_login_message_backup_state "$ssh_backup"
         return 1
     }
 
     msg_ok "SSH 动态登录 Banner 已启用：${target}"
     msg_info "实现方式：仅 SSH 交互登录时由 /etc/profile.d 脚本动态输出。"
     msg_info "已静默 Debian/OpenSSH 自带 MOTD、Last login 与 DebianBanner。"
-    [ -n "$backup_path" ] && msg_warn "旧文件已备份：${backup_path}"
+    [ -n "$ssh_backup" ] && msg_info "sshd 配置备份：${ssh_backup}"
+    case "$LAST_SSH_PAM_BACKUP" in
+        ""|"__ABSENT__") ;;
+        *) msg_info "PAM 配置备份：${LAST_SSH_PAM_BACKUP}" ;;
+    esac
+    case "$LAST_SSH_BANNER_BACKUP" in
+        ""|"__ABSENT__") ;;
+        *) msg_warn "旧 Banner 已备份：${LAST_SSH_BANNER_BACKUP}" ;;
+    esac
     return 0
 }
 

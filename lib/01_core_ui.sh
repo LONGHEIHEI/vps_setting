@@ -95,6 +95,7 @@ IPTABLES_RESTORE_SERVICE_PATH="/etc/systemd/system/${IPTABLES_RESTORE_SERVICE_NA
 IPTABLES_MANAGED_CHAIN="VPS_SUITE_INPUT"
 IP6TABLES_MANAGED_CHAIN="VPS_SUITE_INPUT6"
 SUITE_STATE_DIR="/etc/vps-init-suite"
+SUITE_BACKUP_DIR="/var/backups/vps-init-suite"
 FIREWALL_BACKEND_STATE_FILE="${SUITE_STATE_DIR}/firewall_backend"
 DOCKER_GUARD_CONFIG_FILE="${SUITE_STATE_DIR}/docker_guard.conf"
 DOCKER_GUARD_CHAIN="VPS_DOCKER_GUARD"
@@ -116,6 +117,8 @@ OCI_IPV6_APPLY_SCRIPT="/usr/local/sbin/vps-oci-ipv6-apply.sh"
 OCI_IPV6_SERVICE_NAME="vps-oci-ipv6.service"
 OCI_IPV6_SERVICE_PATH="/etc/systemd/system/${OCI_IPV6_SERVICE_NAME}"
 LAST_SSHD_OVERRIDE_BACKUP=""
+LAST_SSH_PAM_BACKUP=""
+LAST_SSH_BANNER_BACKUP=""
 EXIT_ALL=0
 AUTO_DEPLOY_LAST_SSH_BACKUP=""
 DOCKER_DAEMON_CONFIG_STATE=""
@@ -430,7 +433,10 @@ read_menu_choice() {
     local __choice_value
 
     msg_prompt "$prompt"
-    IFS= read -r __choice_value
+    if ! IFS= read -r __choice_value; then
+        __resultref=""
+        return 1
+    fi
     __resultref="$__choice_value"
 }
 
@@ -459,7 +465,7 @@ menu_read_standard_choice() {
     local prompt="${2:-请输入选择:}"
     local menu_choice_value
 
-    read_menu_choice menu_choice_value "$prompt"
+    read_menu_choice menu_choice_value "$prompt" || return "$MENU_RESULT_EXIT_ALL"
     __resultref="$menu_choice_value"
     handle_standard_menu_control "$menu_choice_value"
 }
@@ -559,15 +565,15 @@ prepare_main_sshd_config_for_managed_mode() {
         -e '/^[[:space:]]*#/! s/^[[:space:]]*(AllowUsers[[:space:]]+.*)$/# \1/I' \
         /etc/ssh/sshd_config
 
-    delete_sshd_directive "Port"
-    delete_sshd_directive "PasswordAuthentication"
-    delete_sshd_directive "KbdInteractiveAuthentication"
-    delete_sshd_directive "ChallengeResponseAuthentication"
-    delete_sshd_directive "PubkeyAuthentication"
-    delete_sshd_directive "AuthenticationMethods"
-    delete_sshd_directive "PermitEmptyPasswords"
-    delete_sshd_directive "PermitRootLogin"
-    delete_sshd_directive "AllowUsers"
+    delete_sshd_directive "Port" || return 1
+    delete_sshd_directive "PasswordAuthentication" || return 1
+    delete_sshd_directive "KbdInteractiveAuthentication" || return 1
+    delete_sshd_directive "ChallengeResponseAuthentication" || return 1
+    delete_sshd_directive "PubkeyAuthentication" || return 1
+    delete_sshd_directive "AuthenticationMethods" || return 1
+    delete_sshd_directive "PermitEmptyPasswords" || return 1
+    delete_sshd_directive "PermitRootLogin" || return 1
+    delete_sshd_directive "AllowUsers" || return 1
 }
 
 auto_deploy_create_user_and_passwords() {
