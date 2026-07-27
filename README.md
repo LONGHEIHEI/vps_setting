@@ -3,7 +3,7 @@
 ## 一键运行
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/LongShengWen/vps_setting/main/bootstrap.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/LONGHEIHEI/vps_setting/main/bootstrap.sh)
 ```
 
 ## 本地运行

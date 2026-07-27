@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="LongShengWen/vps_setting"
+REPO="LONGHEIHEI/vps_setting"
 REF="${VPS_SETTING_REF:-main}"
 ARCHIVE_URL="https://codeload.github.com/${REPO}/tar.gz/refs/heads/${REF}"
 TMP_DIR="$(mktemp -d /tmp/vps-setting.XXXXXX)"
