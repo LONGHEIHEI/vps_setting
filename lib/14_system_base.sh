@@ -98,6 +98,203 @@ validate_hostname_value() {
     return 0
 }
 
+suite_backup_root() {
+    printf '%s\n' "${SUITE_BACKUP_DIR:-/var/backups/vps-init-suite}"
+}
+
+suite_backup_known_dirs() {
+    suite_backup_root
+    printf '%s\n' "/var/backups/firewalld"
+    printf '%s\n' "/var/backups/nftables"
+    printf '%s\n' "/var/backups/fail2ban"
+}
+
+suite_backup_legacy_items() {
+    local had_nullglob=0
+    local path compose_backup_prefix
+    local items=()
+
+    shopt -q nullglob && had_nullglob=1
+    shopt -s nullglob
+
+    items+=(
+        /etc/nftables.conf.bak.*
+        /etc/sysctl.conf.bak.vps-init-suite-tcp
+        /etc/fail2ban/jail.local.bak.*
+        /etc/docker/daemon.json.bak.*
+        /etc/lucky.bak.*
+        /etc/nginx/conf.d/3x-ui.conf.bak.*
+        /etc/nginx/conf.d/3x-ui-redirect.conf.bak.*
+        /etc/nginx/conf.d/komari.conf.bak.*
+        /etc/nginx/conf.d/komari-redirect.conf.bak.*
+    )
+
+    if [ -n "${DOCKER_COMPOSE_STACK_DIR:-}" ]; then
+        compose_backup_prefix="${DOCKER_COMPOSE_STACK_DIR}.bak."
+        items+=( "${compose_backup_prefix}"* )
+    fi
+
+    [ "$had_nullglob" -eq 1 ] || shopt -u nullglob
+
+    for path in "${items[@]}"; do
+        [ -e "$path" ] && printf '%s\n' "$path"
+    done | sort -u
+}
+
+suite_backup_path_size() {
+    local path="$1"
+    local result
+
+    if [ ! -e "$path" ]; then
+        printf '0'
+        return 0
+    fi
+    result=$(du -sh "$path" 2>/dev/null | awk '{print $1}' || true)
+    printf '%s' "${result:-N/A}"
+}
+
+suite_backup_path_entries() {
+    local path="$1"
+    local result
+
+    if [ ! -d "$path" ]; then
+        [ -e "$path" ] && printf '1' || printf '0'
+        return 0
+    fi
+    result=$(find "$path" -mindepth 1 2>/dev/null | wc -l | awk '{print $1}' || true)
+    printf '%s' "${result:-0}"
+}
+
+suite_backup_is_safe_path() {
+    local path="$1"
+    local backup_root compose_backup_prefix
+
+    backup_root=$(suite_backup_root)
+    compose_backup_prefix="${DOCKER_COMPOSE_STACK_DIR:-/data/docker/compose}.bak."
+
+    case "$path" in
+        "$backup_root"|"$backup_root"/*) return 0 ;;
+        /var/backups/firewalld|/var/backups/firewalld/*) return 0 ;;
+        /var/backups/nftables|/var/backups/nftables/*) return 0 ;;
+        /var/backups/fail2ban|/var/backups/fail2ban/*) return 0 ;;
+        /etc/nftables.conf.bak.*) return 0 ;;
+        /etc/sysctl.conf.bak.vps-init-suite-tcp) return 0 ;;
+        /etc/fail2ban/jail.local.bak.*) return 0 ;;
+        /etc/docker/daemon.json.bak.*) return 0 ;;
+        /etc/lucky.bak.*) return 0 ;;
+        /etc/nginx/conf.d/3x-ui.conf.bak.*) return 0 ;;
+        /etc/nginx/conf.d/3x-ui-redirect.conf.bak.*) return 0 ;;
+        /etc/nginx/conf.d/komari.conf.bak.*) return 0 ;;
+        /etc/nginx/conf.d/komari-redirect.conf.bak.*) return 0 ;;
+        "$compose_backup_prefix"*) return 0 ;;
+    esac
+    return 1
+}
+
+show_suite_backup_paths() {
+    local backup_root dir path count size
+    local legacy_count=0
+    local total_count=0
+    local legacy_items=()
+
+    backup_root=$(suite_backup_root)
+    mapfile -t legacy_items < <(suite_backup_legacy_items)
+
+    clear
+    menu_header "1.5 脚本备份管理"
+    status_pair "集中目录" "$backup_root"
+    if [ -d "$backup_root" ]; then
+        status_pair "集中目录占用" "$(suite_backup_path_size "$backup_root")"
+        status_pair "集中目录项目" "$(suite_backup_path_entries "$backup_root")"
+    else
+        status_pair "集中目录状态" "尚未创建"
+    fi
+    draw_line
+
+    menu_section "脚本备份目录"
+    while IFS= read -r dir; do
+        if [ -d "$dir" ]; then
+            count=$(suite_backup_path_entries "$dir")
+            size=$(suite_backup_path_size "$dir")
+            total_count=$((total_count + count))
+            status_pair "$dir" "${count} 项 / ${size}"
+        else
+            status_pair "$dir" "不存在"
+        fi
+    done < <(suite_backup_known_dirs)
+
+    menu_section "历史散落备份"
+    if [ "${#legacy_items[@]}" -eq 0 ]; then
+        msg_info "未发现已知历史散落备份。"
+    else
+        for path in "${legacy_items[@]}"; do
+            legacy_count=$((legacy_count + 1))
+            total_count=$((total_count + 1))
+            msg_text " - ${path} ($(suite_backup_path_size "$path"))"
+        done
+    fi
+    draw_line
+    status_pair "历史散落备份" "${legacy_count} 项"
+    status_pair "合计项目" "${total_count} 项"
+}
+
+clear_suite_backups() {
+    local backup_root dir item deleted skipped
+    local targets=()
+    local legacy_items=()
+
+    backup_root=$(suite_backup_root)
+    mapfile -t legacy_items < <(suite_backup_legacy_items)
+
+    while IFS= read -r dir; do
+        [ -e "$dir" ] && targets+=( "$dir" )
+    done < <(suite_backup_known_dirs)
+
+    for item in "${legacy_items[@]}"; do
+        [ -e "$item" ] && targets+=( "$item" )
+    done
+
+    if [ "${#targets[@]}" -eq 0 ]; then
+        msg_info "未发现可清除的脚本备份。"
+        return 0
+    fi
+
+    clear
+    menu_header "1.6 清除脚本备份"
+    msg_warn "将删除以下脚本备份项目："
+    for item in "${targets[@]}"; do
+        msg_text " - ${item} ($(suite_backup_path_size "$item"))"
+    done
+    draw_line
+    confirm "清除上述脚本备份? 此操作不可恢复" || {
+        msg_warn "已取消清除备份。"
+        return 0
+    }
+
+    deleted=0
+    skipped=0
+    for item in "${targets[@]}"; do
+        if ! suite_backup_is_safe_path "$item"; then
+            msg_warn "跳过非白名单路径：${item}"
+            skipped=$((skipped + 1))
+            continue
+        fi
+        rm -rf -- "$item" && {
+            msg_ok "已删除：${item}"
+            deleted=$((deleted + 1))
+        } || {
+            msg_err "删除失败：${item}"
+            skipped=$((skipped + 1))
+        }
+    done
+
+    mkdir -p "$backup_root" 2>/dev/null || true
+    draw_line
+    status_pair "已删除" "${deleted} 项"
+    status_pair "跳过/失败" "${skipped} 项"
+    status_pair "集中目录" "$backup_root"
+}
+
 validate_port_or_range() {
     local spec="$1"
     local start end

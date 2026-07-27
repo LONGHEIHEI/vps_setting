@@ -14,6 +14,9 @@ menu_base_config() {
 
         menu_section "Shell 与软件源"
         menu_pair "[3] 终端环境美化" "[4] 更新软件索引"
+
+        menu_section "备份管理"
+        menu_pair "[5] 查看备份路径" "[6] 清除脚本备份"
         menu_footer_back
         menu_read_submenu_action sub menu_action
         case "$menu_action" in
@@ -57,6 +60,10 @@ menu_base_config() {
                 ;;
             4)
                 pkg_update && msg_ok "软件索引更新完成" || msg_err "软件索引更新失败" ;;
+            5)
+                show_suite_backup_paths ;;
+            6)
+                clear_suite_backups ;;
         esac
         pause
     done
