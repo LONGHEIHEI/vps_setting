@@ -594,6 +594,47 @@ vps_banner_ipv4() {
     fi
 }
 
+vps_banner_ipv6() {
+    if command -v ip >/dev/null 2>&1; then
+        primary_ip=$(ip -6 route get 2606:4700:4700::1111 2>/dev/null | awk '
+            {
+                for (i = 1; i <= NF; i++) {
+                    if ($i == "src") {
+                        print $(i + 1)
+                        exit
+                    }
+                }
+            }
+        ')
+        if [ -n "$primary_ip" ]; then
+            printf '%s\n' "$primary_ip"
+            return
+        fi
+
+        ip -o -6 addr show scope global 2>/dev/null | awk '
+            $2 ~ /^(lo|docker|br-|veth|virbr|wg|tun|tap)/ { next }
+            {
+                split($4, addr, "/")
+                out = out ? out ", " addr[1] : addr[1]
+            }
+            END { print out ? out : "N/A" }
+        '
+    elif command -v hostname >/dev/null 2>&1; then
+        hostname -I 2>/dev/null | awk '
+            {
+                for (i = 1; i <= NF; i++) {
+                    if ($i ~ /:/) {
+                        out = out ? out ", " $i : $i
+                    }
+                }
+            }
+            END { print out ? out : "N/A" }
+        '
+    else
+        printf 'N/A\n'
+    fi
+}
+
 vps_banner_source_ip() {
     if [ -n "${SSH_CONNECTION:-}" ]; then
         set -- $SSH_CONNECTION
@@ -637,6 +678,7 @@ banner_load="$(vps_banner_load)"
 banner_memory="$(vps_banner_memory)"
 banner_disk="$(vps_banner_disk)"
 banner_ipv4="$(vps_banner_ipv4)"
+banner_ipv6="$(vps_banner_ipv6)"
 banner_source_ip="$(vps_banner_source_ip)"
 
 printf '\n'
@@ -654,6 +696,7 @@ vps_banner_row "内存      " "$banner_memory"
 vps_banner_row "根分区    " "$banner_disk"
 printf '%b+-------------------------- 网络信息 --------------------------+%b\n' "$c_blue" "$c_reset"
 vps_banner_row "IPv4      " "$banner_ipv4"
+vps_banner_row "IPv6      " "$banner_ipv6"
 vps_banner_row "来源 IP   " "$banner_source_ip"
 printf '%b+------------------------------------------------------------+%b\n' "$c_blue" "$c_reset"
 printf '\n'
