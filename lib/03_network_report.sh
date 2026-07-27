@@ -280,11 +280,11 @@ secure_docker_isolation() {
 
 # 获取 DNS 状态
 get_dns_status() {
-    local dns_list
+    local dns_list=""
     if [ -f /etc/systemd/resolved.conf.d/99-vps-init-suite.conf ]; then
         dns_list=$(awk -F= '/^DNS=/ {print $2; exit}' /etc/systemd/resolved.conf.d/99-vps-init-suite.conf 2>/dev/null)
     fi
-    [ -n "$dns_list" ] || dns_list=$(grep -v '^#' /etc/resolv.conf 2>/dev/null | grep nameserver | awk '{print $2}' | tr '\n' ' ' | sed 's/ $//')
+    [ -n "$dns_list" ] || dns_list=$(awk '/^[[:space:]]*nameserver[[:space:]]+/ { out = out ? out " " $2 : $2 } END { print out }' /etc/resolv.conf 2>/dev/null)
     if [[ "$dns_list" == *"8.8.8.8"* || "$dns_list" == *"1.1.1.1"* ]]; then
         echo "已优化 (${dns_list:-N/A})"
     else

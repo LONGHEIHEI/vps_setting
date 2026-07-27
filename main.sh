@@ -33,15 +33,19 @@ while true; do
     DASH_MEM=$(free | awk '/Mem:/{printf "%.1f%%", $3/$2*100}')
     DASH_IP=$(hostname -I | awk '{print $1}')
     menu_header "SERVER MASTER ULTIMATE SUITE"
-    menu_section "系统管理"
-    menu_pair "[1] 环境基础 >>" "[2] 安全加固 >>"
-    menu_pair "[3] 系统优化 >>" "[4] 防火墙管理 >>"
-    menu_pair "[5] 常用工具 >>" "[6] 机器测试 >>"
-    menu_pair "[7] DD系统 >>" "[8] 系统信息 >>"
-    menu_pair "[9] 甲骨文服务 >>"
+    menu_section "初始化与安全"
+    menu_pair "[1] 基础环境 >>" "[2] SSH与账号安全 >>"
+    menu_pair "[3] 防火墙策略 >>" "[A] 全自动一键部署"
+
+    menu_section "网络与服务"
+    menu_pair "[4] 网络与性能 >>" "[5] 软件与面板 >>"
+    menu_pair "[6] 系统重装/DD >>" "[9] 云厂商/OCI >>"
+
+    menu_section "诊断与信息"
+    menu_pair "[7] 系统信息 >>" "[8] 机器测试 >>"
 
     menu_section "快捷入口"
-    menu_pair "[A] 全自动一键部署" "[0] 退出管理系统"
+    menu_pair "[0] 退出管理系统"
 
     draw_line
     status_pair "HOST" "$(hostname)"
@@ -60,12 +64,12 @@ while true; do
     case $choice in
         1) menu_base_config ;;
         2) menu_security_hardening ;;
-        3) menu_network_performance ;;
-        4) menu_firewall_advanced ;;
+        3) menu_firewall_advanced ;;
+        4) menu_network_performance ;;
         5) menu_ops_tools ;;
-        6) menu_machine_tests ;;
-        7) install_system_tools ;;
-        8) show_system_report ;;
+        6) install_system_tools ;;
+        7) show_system_report ;;
+        8) menu_machine_tests ;;
         9) menu_oracle_cloud_services ;;
         A|a)
             confirm "执行全自动一键部署(已内置SSH/用户/iptables/ping初始化逻辑)" && \

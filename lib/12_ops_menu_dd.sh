@@ -1,11 +1,11 @@
-# 4.5 运维与工具
+# 5. 软件与面板
 menu_ops_tools() {
     local sub menu_action
     local docker_status nginx_status xui_status komari_status panel_status lucky_status
 
     while true; do
         clear
-        menu_header "5. 常用工具集成"
+        menu_header "5. 软件与面板"
         docker_status=$(get_menu_item_status_simple docker)
         nginx_status=$(get_menu_item_status_simple nginx)
         xui_status=$(get_menu_item_status_simple 3x-ui)
@@ -20,15 +20,17 @@ menu_ops_tools() {
         status_pair "1Panel" "$panel_status"
         status_pair "Lucky" "$lucky_status"
 
-        menu_section "安装与部署"
+        menu_section "基础运行环境"
         menu_pair "[1] 安装常用包" "[2] 安装Docker"
-        menu_pair "[3] 安装3x-ui" "[4] 安装Lucky普通版"
-        menu_pair "[5] 安装1Panel" "[6] 安装Nginx"
-        menu_pair "[F] 安装Komari"
+        menu_pair "[7] 部署Compose仓库"
 
-        menu_section "配置与辅助"
-        menu_pair "[7] 部署Compose仓库" "[8] 创建ssl证书目录"
+        menu_section "Web 与代理"
+        menu_pair "[6] 安装Nginx" "[8] 创建SSL证书目录"
         menu_pair "[9] 为现有3x-ui配置反代" "[I] 补全Nginx/3x-ui sudo"
+
+        menu_section "面板与应用"
+        menu_pair "[3] 安装3x-ui" "[4] 安装Lucky普通版"
+        menu_pair "[5] 安装1Panel" "[F] 安装Komari"
 
         menu_section "卸载与清理"
         menu_pair "[A] 卸载Docker" "[B] 卸载3x-ui"
@@ -112,7 +114,7 @@ install_system_tools() {
 
     while true; do
         clear
-        menu_header "DD系统"
+        menu_header "6. 系统重装/DD"
         menu_pair "[1] DD Linux" "[2] DD Windows"
         menu_footer_back
         menu_read_submenu_action sub menu_action

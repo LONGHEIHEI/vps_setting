@@ -1,15 +1,18 @@
 # --- [4. 子菜单模块] ---
-# 4.1 环境基础
+# 1. 基础环境
 menu_base_config() {
     local sub menu_action
 
     while true; do
         clear
-        menu_header "1. 环境基础配置"
+        menu_header "1. 基础环境"
         status_pair "HOST" "$(hostname)"
         status_pair "TZ" "$(timedatectl show --property=Timezone --value)"
         draw_line
+        menu_section "系统身份"
         menu_pair "[1] 修改系统主机名" "[2] 修改系统时区"
+
+        menu_section "Shell 与软件源"
         menu_pair "[3] 终端环境美化" "[4] 更新软件索引"
         menu_footer_back
         menu_read_submenu_action sub menu_action
@@ -54,13 +57,13 @@ menu_base_config() {
     done
 }
 
-# 4.2 安全加固
+# 2. SSH 与账号安全
 menu_security_hardening() {
     local sub menu_action root_s
 
     while true; do
         clear
-        menu_header "2. 安全加固工程"
+        menu_header "2. SSH 与账号安全"
         root_s=$(get_current_root_login_status)
         status_pair "Fail2Ban" "$(check_fail2ban)"
         status_pair "SSH_PORT" "$(get_current_ssh_ports_csv)"
@@ -68,14 +71,16 @@ menu_security_hardening() {
         status_pair "SSH_BANNER" "$(get_ssh_login_banner_status)"
         draw_line
 
-        menu_section "用户与 SSH"
-        menu_pair "[1] 创建管理用户" "[2] 修改SSH登录端口"
+        menu_section "账号"
+        menu_pair "[1] 创建/修复管理用户"
+
+        menu_section "SSH 登录"
+        menu_pair "[2] 修改SSH登录端口" "[C] 添加SSH登录Banner"
         menu_pair "[3] 允许Root登录" "[4] 禁用Root登录"
         menu_pair "[5] 允许密码登录" "[6] 禁用密码登录"
         menu_pair "[B] 仅允许SSH密钥登录"
-        menu_pair "[C] 添加SSH登录Banner"
 
-        menu_section "Fail2Ban"
+        menu_section "入侵防护"
         menu_pair "[7] 安装/配置Fail2Ban" "[9] 查看状态/封禁详情"
         menu_pair "[A] 卸载Fail2Ban"
 
@@ -246,23 +251,26 @@ menu_security_hardening() {
     done
 }
 
-# 4.3 系统性能优化
+# 4. 网络与性能
 menu_network_performance() {
     local sub menu_action
 
     while true; do
         clear
-        menu_header "3. 系统性能优化"
+        menu_header "4. 网络与性能"
         status_pair "DNS" "$(get_dns_status)"
         status_pair "优先级" "$(get_proto_priority)"
         status_pair "IPv6" "$(get_ipv6_status)"
         status_pair "TCP" "$(get_bbr_status)"
         status_pair "Swap" "$(free -m | awk '/Swap:/{printf "%d/%dM", $3, $2}')"
         draw_line
+        menu_section "网络栈"
         menu_pair "[1] TCP网络调优" "[2] DNS解析优化"
         menu_pair "[3] 切换为IPv4优先" "[4] 切换为IPv6优先"
-        menu_pair "[5] 修改Swap分区" "[6] 深度清理系统垃圾"
         menu_pair "[7] 修复IPv6自动获取"
+
+        menu_section "资源维护"
+        menu_pair "[5] 修改Swap分区" "[6] 深度清理系统垃圾"
         menu_footer_back
         menu_read_submenu_action sub menu_action
         case "$menu_action" in
@@ -325,7 +333,7 @@ menu_oracle_cloud_services() {
         oci_meta_ipv6=$(get_oci_ipv6_metadata_address 2>/dev/null || echo "未分配")
         oci_service_status=$(get_oci_ipv6_service_status)
 
-        menu_header "9. 甲骨文服务"
+        menu_header "9. 云厂商/OCI"
         status_pair "元数据 IPv6" "$oci_meta_ipv6"
         status_pair "IPv6 服务" "$oci_service_status"
         draw_line
