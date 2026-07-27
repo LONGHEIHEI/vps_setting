@@ -145,6 +145,72 @@ delete_sshd_directive() {
     sed -i "/^[[:space:]#]*${key}[[:space:]]\\+/Id" "$config_file"
 }
 
+disable_ssh_pam_motd() {
+    local pam_file="/etc/pam.d/sshd"
+    local tmp_file backup_path
+
+    [ -f "$pam_file" ] || return 0
+    grep -Eq '^[[:space:]]*session[[:space:]].*pam_motd\.so' "$pam_file" || return 0
+
+    backup_path=$(backup_file_with_timestamp "$pam_file") || {
+        msg_err "备份 sshd PAM 配置失败：${pam_file}"
+        return 1
+    }
+
+    tmp_file=$(mktemp) || {
+        msg_err "创建临时文件失败，无法调整 sshd PAM MOTD。"
+        return 1
+    }
+
+    awk '
+        /^[[:space:]]*session[[:space:]].*pam_motd\.so/ {
+            print "# Disabled by VPS init suite: " $0
+            next
+        }
+        { print }
+    ' "$pam_file" > "$tmp_file" || {
+        rm -f "$tmp_file"
+        msg_err "重写 sshd PAM 配置失败：${pam_file}"
+        return 1
+    }
+
+    cp -af "$tmp_file" "$pam_file" || {
+        rm -f "$tmp_file"
+        msg_err "写回 sshd PAM 配置失败：${pam_file}"
+        return 1
+    }
+    rm -f "$tmp_file"
+
+    msg_info "已禁用 sshd PAM MOTD：${pam_file}"
+    msg_info "旧 PAM 配置已备份：${backup_path}"
+}
+
+disable_ssh_builtin_login_messages() {
+    local ssh_service
+
+    set_sshd_directive "PrintMotd" "no"
+    set_sshd_directive "PrintLastLog" "no"
+
+    if command -v sshd >/dev/null 2>&1 && sshd -T 2>/dev/null | grep -qi '^debianbanner '; then
+        set_sshd_directive "DebianBanner" "no"
+    fi
+
+    disable_ssh_pam_motd || return 1
+
+    if command -v sshd >/dev/null 2>&1 && ! sshd -t; then
+        msg_err "sshd 配置校验失败，未能静默系统自带登录信息。"
+        return 1
+    fi
+
+    ssh_service=$(get_ssh_service_name)
+    restart_ssh_service "$ssh_service" || {
+        msg_err "SSH 服务重启失败，系统自带登录信息可能仍会显示。"
+        return 1
+    }
+
+    msg_info "已静默系统自带 SSH 登录信息：MOTD / Last login / DebianBanner"
+}
+
 validate_port() {
     local port="$1"
     [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ]
@@ -391,6 +457,8 @@ install_ssh_login_banner() {
     local target="$SSH_LOGIN_BANNER_PROFILE_FILE"
     local backup_path=""
 
+    disable_ssh_builtin_login_messages || msg_warn "系统自带 SSH 登录信息静默失败，请稍后手动检查 sshd/PAM 配置。"
+
     mkdir -p /etc/profile.d || {
         msg_err "创建 /etc/profile.d 失败。"
         return 1
@@ -406,8 +474,8 @@ install_ssh_login_banner() {
 
     cat > "$target" <<'EOF'
 # Managed by VPS init suite.
-# SSH-only dynamic login banner. This intentionally does not modify
-# /etc/motd, /etc/issue, /etc/update-motd.d, or package-managed files.
+# SSH-only dynamic login banner. System MOTD and LastLog are silenced
+# separately by the installer so this banner remains the only login notice.
 
 if [ -n "${VPS_SSH_LOGIN_BANNER_SHOWN:-}" ]; then
     return 0 2>/dev/null || exit 0
@@ -598,8 +666,9 @@ EOF
 
     msg_ok "SSH 动态登录 Banner 已启用：${target}"
     msg_info "实现方式：仅 SSH 交互登录时由 /etc/profile.d 脚本动态输出。"
-    msg_info "未修改 /etc/motd、/etc/issue 或 /etc/update-motd.d，不影响系统更新。"
+    msg_info "已静默 Debian/OpenSSH 自带 MOTD、Last login 与 DebianBanner。"
     [ -n "$backup_path" ] && msg_warn "旧文件已备份：${backup_path}"
+    return 0
 }
 
 handle_selinux_ssh_port() {

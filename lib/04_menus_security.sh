@@ -225,7 +225,7 @@ menu_security_hardening() {
                     msg_warn "操作已取消"
                 fi ;;
             C|c)
-                if confirm "添加/更新 SSH 动态登录 Banner（无依赖，不修改系统 motd/update-motd 文件）?"; then
+                if confirm "添加/更新 SSH 动态登录 Banner（同时静默系统 MOTD / Last login）?"; then
                     install_ssh_login_banner
                 else
                     msg_warn "操作已取消"

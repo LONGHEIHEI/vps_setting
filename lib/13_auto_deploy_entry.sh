@@ -71,7 +71,7 @@ run_inlined_auto_deploy() {
         change_ssh_port_safely "$AUTO_DEPLOY_SSH_PORT" "SSH 安全配置已应用" 1 "$ssh_backup" || return 1
     fi
 
-    # 步骤 7: SSH 动态登录 Banner（无依赖，不修改系统 motd/update-motd 文件）
+    # 步骤 7: SSH 动态登录 Banner（同时静默系统 MOTD / Last login）
     printf "\n"
     draw_line
     msg_info "[全自动] 步骤 ${step}/${total_steps}: 添加 SSH 动态登录 Banner"
