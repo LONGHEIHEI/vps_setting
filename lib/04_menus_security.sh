@@ -205,11 +205,11 @@ menu_security_hardening() {
                     msg_warn "操作已取消"
                 fi ;;
             B|b)
-                read -r -p "允许密钥登录的用户名（可多个空格分隔；留空不限制用户）: " allow_users
+                read -r -p "允许密钥登录的用户名（可多个空格分隔；留空不写 AllowUsers，将自动检查当前登录用户公钥）: " allow_users
                 if [ -n "$allow_users" ]; then
                     invalid_user=""
                     for input_user in $allow_users; do
-                        if [[ ! "$input_user" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]]; then
+                        if ! is_valid_system_username "$input_user"; then
                             invalid_user="$input_user"
                             break
                         fi

@@ -204,6 +204,51 @@ get_user_primary_group() {
     getent passwd "$username" | awk -F: '{print $4; exit}'
 }
 
+is_valid_system_username() {
+    local username="$1"
+    [[ "$username" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]]
+}
+
+append_unique_word() {
+    local list="$1"
+    local word="$2"
+
+    [ -n "$word" ] || {
+        printf '%s\n' "$list"
+        return 0
+    }
+
+    if [[ " ${list} " == *" ${word} "* ]]; then
+        printf '%s\n' "$list"
+    elif [ -n "$list" ]; then
+        printf '%s %s\n' "$list" "$word"
+    else
+        printf '%s\n' "$word"
+    fi
+}
+
+get_default_ssh_key_check_users() {
+    local users="" candidate
+
+    for candidate in "${SUDO_USER:-}" "${USER:-}" "${LOGNAME:-}" root; do
+        [ -n "$candidate" ] || continue
+        [ "$candidate" = "root" ] || id "$candidate" >/dev/null 2>&1 || continue
+        users=$(append_unique_word "$users" "$candidate")
+    done
+
+    printf '%s\n' "${users:-root}"
+}
+
+get_ssh_key_check_users() {
+    local allow_users="$1"
+
+    if [ -n "$allow_users" ]; then
+        printf '%s\n' "$allow_users"
+    else
+        get_default_ssh_key_check_users
+    fi
+}
+
 is_valid_ssh_public_key() {
     local public_key="$1"
     [[ "$public_key" =~ ^(sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com|ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521)[[:space:]]+[A-Za-z0-9+/=]+([[:space:]].*)?$ ]]
@@ -236,6 +281,7 @@ fix_user_ssh_key_permissions() {
     mkdir -p "$ssh_dir" || return 1
     touch "$auth_file" || return 1
     chown "$username:$primary_group" "$ssh_dir" "$auth_file" 2>/dev/null || chown "$username" "$ssh_dir" "$auth_file"
+    chmod go-w "$home_dir" 2>/dev/null || true
     chmod 700 "$ssh_dir"
     chmod 600 "$auth_file"
 }
@@ -292,16 +338,18 @@ ensure_user_has_ssh_public_key() {
 
 apply_ssh_key_only_login_config() {
     local allow_users="$1"
-    local ssh_backup username
+    local ssh_backup username key_check_users
 
     ensure_ssh_server_installed || return 1
 
-    for username in $allow_users; do
+    key_check_users=$(get_ssh_key_check_users "$allow_users")
+    for username in $key_check_users; do
         ensure_user_has_ssh_public_key "$username" || return 1
     done
 
     if [ -z "$allow_users" ]; then
         msg_warn "未指定 AllowUsers，将仅限制认证方式，不额外限制可登录用户。"
+        msg_info "已确认密钥登录用户: ${key_check_users}"
     fi
 
     ssh_backup=$(backup_file_with_timestamp /etc/ssh/sshd_config) || {
@@ -315,12 +363,10 @@ apply_ssh_key_only_login_config() {
     set_sshd_directive "ChallengeResponseAuthentication" "no"
     set_sshd_directive "PermitEmptyPasswords" "no"
     set_sshd_directive "AuthenticationMethods" "publickey"
+    set_sshd_directive "PermitRootLogin" "prohibit-password"
 
     if [ -n "$allow_users" ]; then
         set_sshd_directive "AllowUsers" "$allow_users"
-        if [[ " ${allow_users} " == *" root "* ]]; then
-            set_sshd_directive "PermitRootLogin" "prohibit-password"
-        fi
     else
         delete_sshd_directive "AllowUsers"
     fi
