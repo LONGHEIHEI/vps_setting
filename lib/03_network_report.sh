@@ -1117,8 +1117,8 @@ show_system_report() {
 }
 
 apply_sshd_changes() {
-    local success_msg="$1"
-    local ssh_backup="$2"
+    local success_msg="${1:-}"
+    local ssh_backup="${2:-}"
     local ssh_service
     local current_ports
 
@@ -1262,10 +1262,10 @@ finalize_firewall_after_ssh_port_change() {
 }
 
 change_ssh_port_safely() {
-    local new_port="$1"
-    local success_msg="$2"
+    local new_port="${1:-}"
+    local success_msg="${2:-}"
     local close_old_on_success="${3:-1}"
-    local ssh_backup="$4"
+    local ssh_backup="${4:-}"
     local old_port backend ssh_service current_ports
 
     validate_port "$new_port" || {
