@@ -80,17 +80,17 @@ menu_security_hardening() {
         menu_pair "[1] 创建/修复管理用户"
 
         menu_section "SSH 登录"
-        menu_pair "[2] 修改SSH登录端口" "[C] 添加SSH登录Banner"
-        menu_pair "[3] 允许Root登录" "[4] 禁用Root登录"
-        menu_pair "[5] 允许密码登录" "[6] 禁用密码登录"
-        menu_pair "[B] 仅允许SSH密钥登录"
+        menu_pair "[2] 修改SSH登录端口" "[3] 添加SSH登录Banner"
+        menu_pair "[4] 仅允许SSH密钥登录"
+        menu_pair "[5] 允许Root登录" "[6] 禁用Root登录"
+        menu_pair "[7] 允许密码登录" "[8] 禁用密码登录"
 
         menu_section "入侵防护"
-        menu_pair "[7] 安装/配置Fail2Ban" "[9] 查看状态/封禁详情"
-        menu_pair "[A] 卸载Fail2Ban"
+        menu_pair "[9] 安装/配置Fail2Ban" "[10] 查看状态/封禁详情"
+        menu_pair "[11] 卸载Fail2Ban"
 
         menu_section "整合初始化"
-        menu_pair "[8] 一键整合SSH / 用户 / 防火墙"
+        menu_pair "[12] 一键整合SSH / 用户 / 防火墙"
         menu_footer_back
         menu_read_submenu_action sub menu_action
         case "$menu_action" in
@@ -157,6 +157,32 @@ menu_security_hardening() {
                     fi
                 } ;;
             3)
+                if confirm "添加/更新 SSH 动态登录 Banner（同时静默系统 MOTD / Last login）?"; then
+                    install_ssh_login_banner
+                else
+                    msg_warn "操作已取消"
+                fi ;;
+            4)
+                read -r -p "允许密钥登录的用户名（可多个空格分隔；留空不写 AllowUsers，将自动检查当前登录用户公钥）: " allow_users
+                if [ -n "$allow_users" ]; then
+                    invalid_user=""
+                    for input_user in $allow_users; do
+                        if ! is_valid_system_username "$input_user"; then
+                            invalid_user="$input_user"
+                            break
+                        fi
+                    done
+                    if [ -n "$invalid_user" ]; then
+                        msg_err "用户名格式无效：${invalid_user}"
+                        continue
+                    fi
+                fi
+                if confirm "启用仅 SSH 密钥登录（将禁用密码登录、键盘交互认证和空密码）?"; then
+                    apply_ssh_key_only_login_config "$allow_users"
+                else
+                    msg_warn "操作已取消"
+                fi ;;
+            5)
                 if confirm "允许root登录?"; then
                     if ! ssh_backup=$(backup_file_with_timestamp /etc/ssh/sshd_config); then
                         msg_err "备份 sshd 配置失败。"
@@ -167,7 +193,7 @@ menu_security_hardening() {
                 else
                     msg_warn "操作已取消"
                 fi ;;
-            4)
+            6)
                 read -p "允许登录的用户名: " allow_user
                 if [ -z "$allow_user" ]; then
                     confirm "禁用root登录" && {
@@ -192,7 +218,7 @@ menu_security_hardening() {
                         apply_sshd_changes "SSH安全配置完成" "$ssh_backup"
                     }
                 fi ;;
-            5)
+            7)
                 if confirm "允许密码登录 (PasswordAuthentication yes)?"; then
                     if ! ssh_backup=$(backup_file_with_timestamp /etc/ssh/sshd_config); then
                         msg_err "备份 sshd 配置失败。"
@@ -203,7 +229,7 @@ menu_security_hardening() {
                 else
                     msg_warn "操作已取消"
                 fi ;;
-            6)
+            8)
                 if confirm "禁用密码登录 (PasswordAuthentication no)?"; then
                     if ! ssh_backup=$(backup_file_with_timestamp /etc/ssh/sshd_config); then
                         msg_err "备份 sshd 配置失败。"
@@ -214,43 +240,17 @@ menu_security_hardening() {
                 else
                     msg_warn "操作已取消"
                 fi ;;
-            B|b)
-                read -r -p "允许密钥登录的用户名（可多个空格分隔；留空不写 AllowUsers，将自动检查当前登录用户公钥）: " allow_users
-                if [ -n "$allow_users" ]; then
-                    invalid_user=""
-                    for input_user in $allow_users; do
-                        if ! is_valid_system_username "$input_user"; then
-                            invalid_user="$input_user"
-                            break
-                        fi
-                    done
-                    if [ -n "$invalid_user" ]; then
-                        msg_err "用户名格式无效：${invalid_user}"
-                        continue
-                    fi
-                fi
-                if confirm "启用仅 SSH 密钥登录（将禁用密码登录、键盘交互认证和空密码）?"; then
-                    apply_ssh_key_only_login_config "$allow_users"
-                else
-                    msg_warn "操作已取消"
-                fi ;;
-            C|c)
-                if confirm "添加/更新 SSH 动态登录 Banner（同时静默系统 MOTD / Last login）?"; then
-                    install_ssh_login_banner
-                else
-                    msg_warn "操作已取消"
-                fi ;;
-            7)
+            9)
                 confirm "安装并配置Fail2Ban防暴力破解" && {
                     install_and_configure_fail2ban && \
                     msg_ok "Fail2Ban安装/配置完成"
                 } ;;
-            8)
-                run_integrated_ssh_user_firewall_init ;;
-            9)
+            10)
                 show_fail2ban_status_detail ;;
-            A|a)
+            11)
                 run_confirmed_action "卸载Fail2Ban（删除配置需二次确认）" uninstall_fail2ban ;;
+            12)
+                run_integrated_ssh_user_firewall_init ;;
         esac
         pause
     done
@@ -272,10 +272,10 @@ menu_network_performance() {
         menu_section "网络栈"
         menu_pair "[1] TCP网络调优" "[2] DNS解析优化"
         menu_pair "[3] 切换为IPv4优先" "[4] 切换为IPv6优先"
-        menu_pair "[7] 修复IPv6自动获取"
+        menu_pair "[5] 修复IPv6自动获取"
 
         menu_section "资源维护"
-        menu_pair "[5] 修改Swap分区" "[6] 深度清理系统垃圾"
+        menu_pair "[6] 修改Swap分区" "[7] 深度清理系统垃圾"
         menu_footer_back
         menu_read_submenu_action sub menu_action
         case "$menu_action" in
@@ -304,6 +304,10 @@ menu_network_performance() {
                     msg_ok "IPv6优先已设置"
                 } ;;
             5)
+                confirm "修复 IPv6 自动获取" && {
+                    repair_ipv6_autoconf
+                } ;;
+            6)
                 read -p "大小(MB): " sz
                 validate_non_negative_int "$sz" || {
                     msg_err "请输入非负整数，例如 0 / 512 / 1024"
@@ -313,17 +317,13 @@ menu_network_performance() {
                 confirm "创建或修改Swap文件为 ${sz}MB" && {
                     configure_swap_file "$sz"
                 } ;;
-            6)
+            7)
                 confirm "深度清理系统垃圾" && {
                     if pkg_cleanup && journalctl --vacuum-time=1s; then
                         msg_ok "系统清理完成"
                     else
                         msg_err "系统清理过程中出现错误"
                     fi
-                } ;;
-            7)
-                confirm "修复 IPv6 自动获取" && {
-                    repair_ipv6_autoconf
                 } ;;
         esac
         pause
@@ -338,7 +338,7 @@ menu_oracle_cloud_services() {
         oci_meta_ipv6=$(get_oci_ipv6_metadata_address 2>/dev/null || echo "未分配")
         oci_service_status=$(get_oci_ipv6_service_status)
 
-        menu_header "9. 云厂商/OCI"
+        menu_header "5. 云厂商/OCI"
         status_pair "元数据 IPv6" "$oci_meta_ipv6"
         status_pair "IPv6 服务" "$oci_service_status"
         draw_line

@@ -201,7 +201,7 @@ EOF
 
     draw_line
     msg_warn "请记录以上信息！"
-    msg_info "防火墙放行: 在本脚本 [4] 防火墙管理 → [2] 端口与连通性 → [1] 开放指定端口"
+    msg_info "防火墙放行: 在本脚本 [3] 防火墙策略 → [2] 端口与连通性 → [1] 开放指定端口"
     if [ "$use_nginx" -eq 1 ]; then
         msg_info "需放行端口: ${listen_port}/tcp"
     else

@@ -23,7 +23,7 @@ menu_machine_tests() {
 
     while true; do
         clear
-        menu_header "8. 机器测试"
+        menu_header "9. 机器测试"
         menu_pair "[1] 融合测试" "[2] 网络质量测试"
         menu_pair "[3] IP质量测试" "[4] 机器硬件测试"
         menu_pair "[5] 网络测速"

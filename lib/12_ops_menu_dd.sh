@@ -1,11 +1,11 @@
-# 5. 软件与面板
+# 6. 软件与面板
 menu_ops_tools() {
     local sub menu_action
     local docker_status nginx_status xui_status komari_status panel_status lucky_status
 
     while true; do
         clear
-        menu_header "5. 软件与面板"
+        menu_header "6. 软件与面板"
         docker_status=$(get_menu_item_status_simple docker)
         nginx_status=$(get_menu_item_status_simple nginx)
         xui_status=$(get_menu_item_status_simple 3x-ui)
@@ -22,15 +22,15 @@ menu_ops_tools() {
 
         menu_section "基础运行环境"
         menu_pair "[1] 安装常用包" "[2] 安装Docker"
-        menu_pair "[7] 部署Compose仓库"
+        menu_pair "[3] 部署Compose仓库"
 
         menu_section "Web 与代理"
-        menu_pair "[6] 安装Nginx" "[8] 创建SSL证书目录"
-        menu_pair "[9] 为现有3x-ui配置反代" "[I] 补全Nginx/3x-ui sudo"
+        menu_pair "[4] 安装Nginx" "[5] 创建SSL证书目录"
+        menu_pair "[6] 为现有3x-ui配置反代" "[7] 补全Nginx/3x-ui sudo"
 
         menu_section "面板与应用"
-        menu_pair "[3] 安装3x-ui" "[4] 安装Lucky普通版"
-        menu_pair "[5] 安装1Panel" "[F] 安装Komari"
+        menu_pair "[8] 安装3x-ui" "[9] 安装Lucky普通版"
+        menu_pair "[10] 安装1Panel" "[11] 安装Komari"
 
         menu_section "卸载与清理"
         menu_pair "[A] 卸载Docker" "[B] 卸载3x-ui"
@@ -57,6 +57,16 @@ menu_ops_tools() {
             2)
                 run_confirmed_action "安装Docker" install_or_configure_docker ;;
             3)
+                run_confirmed_action "部署 LongShengWen/docker-compose 仓库服务" install_docker_compose_repo_services ;;
+            4)
+                run_confirmed_action "安装Nginx" install_nginx ;;
+            5)
+                run_confirmed_action "创建 sshl 证书目录 ${SSHL_CERTS_DIR}" create_sshl_certs_dir ;;
+            6)
+                run_confirmed_action "为现有3x-ui配置Nginx反代" configure_existing_3x_ui_nginx_proxy ;;
+            7)
+                run_confirmed_action "补全非root用户 Nginx/3x-ui 受限 sudo 权限" configure_nginx_limited_sudo_for_users ;;
+            8)
                 if confirm "安装3x-ui并预置配置"; then
                     if install_3x_ui_preconfigured; then
                         msg_ok "3x-ui 安装流程完成"
@@ -64,9 +74,9 @@ menu_ops_tools() {
                         msg_err "3x-ui 安装流程失败或已中止"
                     fi
                 fi ;;
-            4)
+            9)
                 run_confirmed_action "安装Lucky普通版到/etc/lucky?" install_lucky_standard ;;
-            5)
+            10)
                 if confirm "安装1Panel面板?"; then
                     msg_info "将下载并执行1Panel官方安装脚本："
                     msg_text 'https://resource.fit2cloud.com/1panel/package/v2/quick_start.sh'
@@ -76,13 +86,7 @@ menu_ops_tools() {
                         msg_err "1Panel安装引导执行失败，请检查网络或安装脚本输出。"
                     fi
                 fi ;;
-            6)
-                run_confirmed_action "安装Nginx" install_nginx ;;
-            9)
-                run_confirmed_action "为现有3x-ui配置Nginx反代" configure_existing_3x_ui_nginx_proxy ;;
-            I|i)
-                run_confirmed_action "补全非root用户 Nginx/3x-ui 受限 sudo 权限" configure_nginx_limited_sudo_for_users ;;
-            F|f)
+            11)
                 if confirm "安装 Komari 并预置配置"; then
                     install_komari_preconfigured
                 fi ;;
@@ -100,10 +104,6 @@ menu_ops_tools() {
                 run_confirmed_action "调用官方流程卸载1Panel" uninstall_1panel ;;
             E|e)
                 run_confirmed_action "卸载Nginx（删除配置需二次确认）" uninstall_nginx ;;
-            7)
-                run_confirmed_action "部署 LongShengWen/docker-compose 仓库服务" install_docker_compose_repo_services ;;
-            8)
-                run_confirmed_action "创建 sshl 证书目录 ${SSHL_CERTS_DIR}" create_sshl_certs_dir ;;
         esac
         pause
     done
@@ -114,7 +114,7 @@ install_system_tools() {
 
     while true; do
         clear
-        menu_header "6. 系统重装/DD"
+        menu_header "7. 系统重装/DD"
         menu_pair "[1] DD Linux" "[2] DD Windows"
         menu_footer_back
         menu_read_submenu_action sub menu_action

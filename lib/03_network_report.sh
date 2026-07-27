@@ -1098,10 +1098,10 @@ get_geo_and_ip_info() {
     status_pair "系统时间" "$(date "+%Z %Y-%m-%d %I:%M %p")"
 }
 
-# --- [3. 系统深度体检报告] ---
+# --- [8. 系统深度体检报告] ---
 show_system_report() {
     clear
-    menu_header "系统深度体检报告"
+    menu_header "8. 系统深度体检报告"
 
     get_system_info
     draw_line
