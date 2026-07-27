@@ -924,6 +924,19 @@ get_fail2ban_banaction() {
     fi
 }
 
+backup_fail2ban_file_with_timestamp() {
+    local target_file="$1"
+    local backup_root="${SUITE_BACKUP_DIR:-/var/backups/vps-init-suite}/fail2ban"
+    local safe_name backup_path
+
+    [ -f "$target_file" ] || return 1
+    mkdir -p "$backup_root" || return 1
+    safe_name=$(printf '%s\n' "$target_file" | sed 's#^/##; s#[^A-Za-z0-9._-]#_#g')
+    backup_path="${backup_root}/${safe_name}.bak.$(date +%F_%H%M%S).$$"
+    cp -af "$target_file" "$backup_path" || return 1
+    printf '%s\n' "$backup_path"
+}
+
 write_fail2ban_jail_local() {
     local ports="$1"
     local f2b_backend="$2"
@@ -939,8 +952,7 @@ write_fail2ban_jail_local() {
     }
 
     if [ -f "$jail_local" ]; then
-        backup_file="${jail_local}.bak.$(date +%F_%H%M%S)"
-        cp -af "$jail_local" "$backup_file" || {
+        backup_file=$(backup_fail2ban_file_with_timestamp "$jail_local") || {
             msg_err "备份 ${jail_local} 失败。"
             return 1
         }
@@ -1069,8 +1081,8 @@ EOF
     local legacy_candidate
     for legacy_candidate in "$legacy_jaild" "${legacy_jaild}".*; do
         [ -f "$legacy_candidate" ] || continue
-        mkdir -p /var/backups/fail2ban 2>/dev/null || true
-        legacy_backup="/var/backups/fail2ban/$(basename "$legacy_candidate").disabled.$(date +%F_%H%M%S)"
+        mkdir -p "${SUITE_BACKUP_DIR:-/var/backups/vps-init-suite}/fail2ban" 2>/dev/null || true
+        legacy_backup="${SUITE_BACKUP_DIR:-/var/backups/vps-init-suite}/fail2ban/$(basename "$legacy_candidate").disabled.$(date +%F_%H%M%S).$$"
         mv "$legacy_candidate" "$legacy_backup" 2>/dev/null || rm -f "$legacy_candidate"
         msg_ok "已停用旧独立配置文件：${legacy_backup}"
     done
@@ -1086,8 +1098,7 @@ remove_fail2ban_managed_jail_local() {
     [ -f "$jail_local" ] || { rm -f "$legacy_jaild"; return 0; }
     command -v python3 >/dev/null 2>&1 || return 0
 
-    backup_file="${jail_local}.bak.$(date +%F_%H%M%S)"
-    cp -af "$jail_local" "$backup_file" || return 1
+    backup_file=$(backup_fail2ban_file_with_timestamp "$jail_local") || return 1
     tmp_file=$(mktemp) || return 1
 
     python3 - "$jail_local" "$tmp_file" <<'PY' || { rm -f "$tmp_file"; return 1; }
