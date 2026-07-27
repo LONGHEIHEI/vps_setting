@@ -588,8 +588,6 @@ printf '%b+-------------------------- 网络信息 --------------------------+%b
 vps_banner_row "IPv4      " "$banner_ipv4"
 vps_banner_row "来源 IP   " "$banner_source_ip"
 printf '%b+------------------------------------------------------------+%b\n' "$c_blue" "$c_reset"
-printf '%b|%b %b请先新开终端验证 SSH 登录成功，再关闭当前会话。%b\n' "$c_blue" "$c_reset" "$c_yellow" "$c_reset"
-printf '%b+------------------------------------------------------------+%b\n' "$c_blue" "$c_reset"
 printf '\n'
 EOF
 
