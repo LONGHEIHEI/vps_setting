@@ -721,7 +721,7 @@ show_firewall_status() {
         return 0
     elif [ "$backend" = "nft" ]; then
         local nft_input_chain first_icmp_rule
-        nft_input_chain=$(nft list chain inet filter input 2>/dev/null)
+        nft_input_chain=$(nft list chain inet filter input 2>/dev/null || true)
 
         # --- NFTABLES 检测逻辑 ---
         # 1. 获取 INPUT 链默认策略
@@ -731,7 +731,7 @@ show_firewall_status() {
         # 2. 查找第一条关于 icmp 的规则 (First Match Wins)
         # nftables 的 list 输出是按顺序的，我们取第一条匹配 icmp 的行
         # 匹配 "ip protocol icmp" 或 "meta l4proto ipv6-icmp"
-        first_icmp_rule=$(printf '%s\n' "$nft_input_chain" | grep -E "(ip protocol icmp|meta l4proto ipv6-icmp)" | head -n 1)
+        first_icmp_rule=$(printf '%s\n' "$nft_input_chain" | awk '/ip protocol icmp|meta l4proto ipv6-icmp/ { print; exit }')
 
         if [ -n "$first_icmp_rule" ]; then
             # 如果找到了针对 ICMP 的规则，检查它的动作
@@ -755,7 +755,7 @@ show_firewall_status() {
         # --- IPTABLES 检测逻辑 ---
         local inspect_chain first_icmp_rule chain_rules input_rules
         inspect_chain=$(get_effective_filter_chain iptables)
-        chain_rules=$(iptables -S "$inspect_chain" 2>/dev/null)
+        chain_rules=$(iptables -S "$inspect_chain" 2>/dev/null || true)
 
         if [ "$inspect_chain" = "$IPTABLES_MANAGED_CHAIN" ]; then
             if printf '%s\n' "$chain_rules" | tail -n 1 | grep -q -- '-j DROP$'; then
@@ -764,7 +764,7 @@ show_firewall_status() {
                 FW_POLICY="ACCEPT (托管链)"
             fi
         else
-            input_rules=$(iptables -S INPUT 2>/dev/null)
+            input_rules=$(iptables -S INPUT 2>/dev/null || true)
             FW_POLICY=$(printf '%s\n' "$input_rules" | awk '/^-P INPUT / {print toupper($3); exit}')
             FW_POLICY=${FW_POLICY:-"ACCEPT"}
         fi

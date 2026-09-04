@@ -474,7 +474,7 @@ menu_read_submenu_action() {
     local -n __choiceref="$1"
     local -n __actionref="$2"
     local prompt="${3:-请输入选择:}"
-    local menu_choice_buffer
+    local menu_choice_buffer=""
     local menu_status="$MENU_RESULT_CONTINUE"
     local submenu_action_value="continue"
 
