@@ -7,6 +7,7 @@ source "$ROOT_DIR/lib/15_ssh_hardening.sh"
 source "$ROOT_DIR/lib/03_network_report.sh"
 source "$ROOT_DIR/lib/08_nginx.sh"
 source "$ROOT_DIR/lib/16_perf_tuning.sh"
+source "$ROOT_DIR/lib/18_fail2ban.sh"
 
 for shell_file in "$ROOT_DIR"/*.sh "$ROOT_DIR"/lib/*.sh; do
     bash -n "$shell_file"
@@ -46,6 +47,10 @@ assert_output() {
     fi
 }
 
+get_fail2ban_test_matches() {
+    fail2ban-regex --out ip "$1" "$2" 2>/dev/null
+}
+
 SUITE_BACKUP_DIR="/tmp/vps-suite-test-backups"
 
 # Protocol and port validation.
@@ -83,6 +88,20 @@ assert_status 1 '端口列表拒绝非法值' normalize_port_list '80,abc'
 assert_output '6' '亚洲区域 100Mbps 缓冲值' tcp_tune_calculate_buffer_mb 100 asia
 assert_output '64' '海外区域 1000Mbps 缓冲值' tcp_tune_calculate_buffer_mb 1000 overseas
 assert_output '16' '非法带宽使用默认值' tcp_tune_calculate_buffer_mb invalid asia
+
+if command -v fail2ban-regex >/dev/null 2>&1; then
+    f2b_test_dir=$(mktemp -d)
+    FAIL2BAN_SSH_FILTER_FILE="$f2b_test_dir/filter.d/vps-init-suite-sshd.conf"
+    SUITE_BACKUP_DIR="$f2b_test_dir/backups"
+    write_fail2ban_sshd_filter >/dev/null
+    f2b_test_log="$f2b_test_dir/sshd.log"
+    cat > "$f2b_test_log" <<'EOF'
+Sep 30 11:28:44 host sshd[123]: Timeout before authentication for connection from 116.228.141.62 to 10.0.0.215, pid = 1234
+Sep 30 11:29:00 host sshd[124]: Failed password for invalid user admin from 203.0.113.9 port 22 ssh2
+EOF
+    assert_output $'116.228.141.62\n203.0.113.9' 'Fail2Ban过滤器识别超时及普通认证失败日志' get_fail2ban_test_matches "$f2b_test_log" "$FAIL2BAN_SSH_FILTER_FILE"
+    rm -rf "$f2b_test_dir"
+fi
 
 printf '\n测试结果：%s 通过，%s 失败\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

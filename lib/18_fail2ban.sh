@@ -7,6 +7,35 @@ check_fail2ban() {
     fi
 }
 
+FAIL2BAN_LAST_BACKUP_FILE=""
+FAIL2BAN_LAST_FILTER_BACKUP_FILE=""
+FAIL2BAN_MOVED_LEGACY_FILES=()
+
+write_fail2ban_sshd_filter() {
+    local filter_file="${FAIL2BAN_SSH_FILTER_FILE:-/etc/fail2ban/filter.d/vps-init-suite-sshd.conf}"
+    local tmp_file backup_file
+    mkdir -p "$(dirname "$filter_file")" || return 1
+    if [ -f "$filter_file" ]; then
+        backup_file=$(backup_fail2ban_file_with_timestamp "$filter_file") || return 1
+    else
+        backup_file="新建文件"
+    fi
+    tmp_file=$(mktemp) || return 1
+    cat > "$tmp_file" <<'EOF'
+# VPS-INIT-SUITE-SSHD-FILTER-START
+[INCLUDES]
+before = /etc/fail2ban/filter.d/sshd.conf
+
+[Definition]
+failregex = %(known/failregex)s
+            ^Timeout before authentication for connection from <HOST> to \S+(?:, pid = \d+)?\s*$
+# VPS-INIT-SUITE-SSHD-FILTER-END
+EOF
+    chmod 0644 "$tmp_file" || { rm -f "$tmp_file"; return 1; }
+    mv -f "$tmp_file" "$filter_file" || { rm -f "$tmp_file"; return 1; }
+    FAIL2BAN_LAST_FILTER_BACKUP_FILE="$backup_file"
+}
+
 menu_fail2ban() {
     local choice action
     while true; do
@@ -95,13 +124,34 @@ get_fail2ban_banaction() {
 
 restore_fail2ban_jail_after_error() {
     local jail_local="${FAIL2BAN_SSH_JAIL_FILE:-/etc/fail2ban/jail.local}"
-    if [ "${FAIL2BAN_LAST_BACKUP_FILE:-}" = "新建文件" ]; then
-        rm -f -- "$jail_local"
+    local filter_file="${FAIL2BAN_SSH_FILTER_FILE:-/etc/fail2ban/filter.d/vps-init-suite-sshd.conf}"
+    local result=0
+    local moved_pair original_path backup_path
+    if [ -z "${FAIL2BAN_LAST_BACKUP_FILE:-}" ]; then
+        :
+    elif [ "$FAIL2BAN_LAST_BACKUP_FILE" = "新建文件" ]; then
+        rm -f -- "$jail_local" || result=1
     elif [ -n "${FAIL2BAN_LAST_BACKUP_FILE:-}" ] && [ -f "$FAIL2BAN_LAST_BACKUP_FILE" ]; then
-        cp -af -- "$FAIL2BAN_LAST_BACKUP_FILE" "$jail_local"
+        cp -af -- "$FAIL2BAN_LAST_BACKUP_FILE" "$jail_local" || result=1
     else
-        return 1
+        result=1
     fi
+    if [ -z "${FAIL2BAN_LAST_FILTER_BACKUP_FILE:-}" ]; then
+        :
+    elif [ "$FAIL2BAN_LAST_FILTER_BACKUP_FILE" = "新建文件" ]; then
+        rm -f -- "$filter_file" || result=1
+    elif [ -n "${FAIL2BAN_LAST_FILTER_BACKUP_FILE:-}" ] && [ -f "$FAIL2BAN_LAST_FILTER_BACKUP_FILE" ]; then
+        cp -af -- "$FAIL2BAN_LAST_FILTER_BACKUP_FILE" "$filter_file" || result=1
+    else
+        result=1
+    fi
+    for moved_pair in "${FAIL2BAN_MOVED_LEGACY_FILES[@]:-}"; do
+        original_path="${moved_pair%%|*}"
+        backup_path="${moved_pair#*|}"
+        [ -f "$backup_path" ] && mv -- "$backup_path" "$original_path" || result=1
+    done
+    FAIL2BAN_MOVED_LEGACY_FILES=()
+    return "$result"
 }
 
 backup_fail2ban_file_with_timestamp() {
@@ -125,6 +175,14 @@ write_fail2ban_jail_local() {
     local legacy_jaild="${FAIL2BAN_LEGACY_JAILD_FILE:-/etc/fail2ban/jail.d/vps-init-suite-sshd.local}"
     local backup_file tmp_file legacy_backup
 
+    FAIL2BAN_LAST_BACKUP_FILE=""
+    FAIL2BAN_LAST_FILTER_BACKUP_FILE=""
+    FAIL2BAN_MOVED_LEGACY_FILES=()
+    write_fail2ban_sshd_filter || {
+        msg_err "写入 Fail2Ban SSH 日志过滤规则失败。"
+        return 1
+    }
+
     mkdir -p /etc/fail2ban
     command -v python3 >/dev/null 2>&1 || {
         msg_err "未检测到 python3，无法安全更新 ${jail_local}。"
@@ -136,8 +194,10 @@ write_fail2ban_jail_local() {
             msg_err "备份 ${jail_local} 失败。"
             return 1
         }
+        FAIL2BAN_LAST_BACKUP_FILE="$backup_file"
     else
         backup_file="新建文件"
+        FAIL2BAN_LAST_BACKUP_FILE="$backup_file"
         : > "$jail_local" || {
             msg_err "创建 ${jail_local} 失败。"
             return 1
@@ -232,7 +292,7 @@ PY
 # VPS-INIT-SUITE-FAIL2BAN-START
 [sshd]
 enabled = true
-filter = sshd
+filter = vps-init-suite-sshd
 port = ${ports}
 protocol = tcp
 logpath = %(sshd_log)s
@@ -264,7 +324,11 @@ EOF
         [ -f "$legacy_candidate" ] || continue
         mkdir -p "${SUITE_BACKUP_DIR:-/var/backups/vps-init-suite}/fail2ban" 2>/dev/null || true
         legacy_backup="${SUITE_BACKUP_DIR:-/var/backups/vps-init-suite}/fail2ban/$(basename "$legacy_candidate").disabled.$(date +%F_%H%M%S).$$"
-        mv "$legacy_candidate" "$legacy_backup" 2>/dev/null || rm -f "$legacy_candidate"
+        mv "$legacy_candidate" "$legacy_backup" 2>/dev/null || {
+            msg_err "停用旧 Fail2Ban 配置失败：${legacy_candidate}"
+            return 1
+        }
+        FAIL2BAN_MOVED_LEGACY_FILES+=("${legacy_candidate}|${legacy_backup}")
         msg_ok "已停用旧独立配置文件：${legacy_backup}"
     done
 
@@ -273,11 +337,19 @@ EOF
 
 remove_fail2ban_managed_jail_local() {
     local jail_local="${FAIL2BAN_SSH_JAIL_FILE:-/etc/fail2ban/jail.local}"
+    local filter_file="${FAIL2BAN_SSH_FILTER_FILE:-/etc/fail2ban/filter.d/vps-init-suite-sshd.conf}"
     local legacy_jaild="${FAIL2BAN_LEGACY_JAILD_FILE:-/etc/fail2ban/jail.d/vps-init-suite-sshd.local}"
     local backup_file tmp_file
 
-    [ -f "$jail_local" ] || { rm -f "$legacy_jaild"; return 0; }
-    command -v python3 >/dev/null 2>&1 || return 0
+    if [ ! -f "$jail_local" ]; then
+        if [ -f "$filter_file" ] && grep -q '^# VPS-INIT-SUITE-SSHD-FILTER-START$' "$filter_file"; then
+            backup_file=$(backup_fail2ban_file_with_timestamp "$filter_file") || return 1
+            rm -f -- "$filter_file" || return 1
+        fi
+        rm -f -- "$legacy_jaild"
+        return 0
+    fi
+    command -v python3 >/dev/null 2>&1 || return 1
 
     backup_file=$(backup_fail2ban_file_with_timestamp "$jail_local") || return 1
     tmp_file=$(mktemp) || return 1
@@ -304,6 +376,10 @@ dst.write_text("".join(out).rstrip() + "\n")
 PY
     cat "$tmp_file" > "$jail_local" || { rm -f "$tmp_file"; return 1; }
     rm -f "$tmp_file"
+    if [ -f "$filter_file" ] && grep -q '^# VPS-INIT-SUITE-SSHD-FILTER-START$' "$filter_file"; then
+        backup_file=$(backup_fail2ban_file_with_timestamp "$filter_file") || return 1
+        rm -f -- "$filter_file" || return 1
+    fi
     rm -f "$legacy_jaild" "${legacy_jaild}".*
     msg_ok "已移除 Fail2Ban 托管配置（备份：${backup_file}）"
 }
@@ -322,7 +398,10 @@ update_fail2ban_ssh_port() {
     f2b_backend=$(get_fail2ban_sshd_backend)
     f2b_banaction=$(get_fail2ban_banaction) || return 1
 
-    write_fail2ban_jail_local "$ports" "$f2b_backend" "$f2b_banaction" || return 1
+    write_fail2ban_jail_local "$ports" "$f2b_backend" "$f2b_banaction" || {
+        restore_fail2ban_jail_after_error || msg_err "自动恢复 Fail2Ban 原配置失败，请手动恢复备份。"
+        return 1
+    }
 
     local f2b_check_log
     f2b_check_log=$(mktemp) || f2b_check_log="/tmp/fail2ban-check.log"
