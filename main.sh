@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_VERSION="1.0.0"
 
 source "${SCRIPT_DIR}/lib/01_core_ui.sh"
 source "${SCRIPT_DIR}/lib/13_auto_deploy_entry.sh"
@@ -33,7 +34,7 @@ while true; do
     DASH_LOAD=$(uptime | awk -F'load average:' '{print $2}' | cut -d',' -f1 | tr -d ' ')
     DASH_MEM=$(free | awk '/Mem:/{printf "%.1f%%", $3/$2*100}')
     DASH_IP=$(hostname -I | awk '{print $1}')
-    menu_header "SERVER MASTER ULTIMATE SUITE"
+    menu_header "SERVER MASTER ULTIMATE SUITE  v${SCRIPT_VERSION}"
     menu_section "初始化与安全"
     menu_pair "[1] 基础环境 >>" "[2] SSH与账号安全 >>"
     menu_pair "[3] 防火墙策略 >>" "[A] 全自动一键部署"
