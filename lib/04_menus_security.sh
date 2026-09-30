@@ -17,6 +17,8 @@ menu_base_config() {
 
         menu_section "备份管理"
         menu_pair "[5] 查看备份路径" "[6] 清除脚本备份"
+        menu_section "磁盘管理"
+        menu_pair "[7] 查看磁盘占用" "[8] 清理包缓存与旧日志"
         menu_footer_back
         menu_read_submenu_action sub menu_action
         case "$menu_action" in
@@ -64,6 +66,10 @@ menu_base_config() {
                 show_suite_backup_paths ;;
             6)
                 clear_suite_backups ;;
+            7)
+                show_disk_usage_report ;;
+            8)
+                run_confirmed_action "清理软件包缓存及 7 天前的系统日志" clean_system_cache_and_logs ;;
         esac
         pause
     done

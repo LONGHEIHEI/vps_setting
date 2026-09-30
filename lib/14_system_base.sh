@@ -970,3 +970,28 @@ collect_auto_deploy_inputs() {
     AUTO_DEPLOY_ROOT_PASS="$input_root_pass"
     SSHL_CERTS_OWNER="${AUTO_DEPLOY_USER}:${AUTO_DEPLOY_USER}"
 }
+show_disk_usage_report() {
+    msg_info "文件系统使用情况"
+    df -hT -x tmpfs -x devtmpfs
+    printf '\n'
+    msg_info "根目录下占用较大的目录（可能需要数分钟）"
+    du -x -h --max-depth=1 / 2>/dev/null | sort -h | tail -n 15 || true
+    printf '\n'
+    msg_info "根文件系统中大于 500 MiB 的文件（最多显示 20 个）"
+    find / -xdev -type f -size +500M -printf '%s\t%p\n' 2>/dev/null | sort -nr | head -n 20 | awk -F '\t' '{printf "%.1f MiB\t%s\n", $1/1048576, $2}' || true
+}
+
+clean_system_cache_and_logs() {
+    local pkg_manager
+    pkg_manager=$(get_pkg_manager)
+    case "$pkg_manager" in
+        apt) apt-get clean || return 1 ;;
+        dnf) dnf clean all || return 1 ;;
+        yum) yum clean all || return 1 ;;
+        *) msg_err "不支持的包管理器，未清理缓存。"; return 1 ;;
+    esac
+    if command -v journalctl >/dev/null 2>&1; then
+        journalctl --vacuum-time=7d || return 1
+    fi
+    msg_ok "软件包缓存已清理；系统日志已按 7 天保留策略清理。"
+}
