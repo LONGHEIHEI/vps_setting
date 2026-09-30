@@ -23,6 +23,10 @@ uninstall_nezha_dashboard() {
     local compose_file="${dashboard_path}/docker-compose.yaml"
     local removed_any=0
 
+    if [ -d "$dashboard_path" ]; then
+        confirm "确认卸载哪吒面板并删除目录 ${dashboard_path}（其中数据和配置将被永久删除）?" || return 1
+    fi
+
     if [ -f "$compose_file" ]; then
         if run_docker_compose_file "$compose_file" down >/dev/null 2>&1; then
             msg_ok "已停止哪吒面板 Docker 编排。"
@@ -67,6 +71,10 @@ uninstall_nezha_agent() {
     local removed_any=0
     local config_file
     local unit
+
+    if [ -d "$agent_path" ]; then
+        confirm "确认卸载哪吒探针并删除目录 ${agent_path}（其中配置将被永久删除）?" || return 1
+    fi
 
     if [ -x "$agent_bin" ] && [ -d "$agent_path" ]; then
         while IFS= read -r config_file; do
@@ -233,7 +241,7 @@ uninstall_docker() {
     rm -f /usr/local/bin/docker-compose /usr/bin/docker-compose 2>/dev/null || true
 
     if confirm "是否同时删除 Docker 运行数据与配置目录? (/var/lib/docker /var/lib/containerd /etc/docker)"; then
-        rm -rf /var/lib/docker /var/lib/containerd /etc/docker
+        rm -rf -- /var/lib/docker /var/lib/containerd /etc/docker
         msg_ok "Docker 运行数据与配置目录已删除。"
     else
         msg_warn "已保留 Docker 运行数据与配置目录。"
@@ -270,7 +278,11 @@ uninstall_3x_ui() {
         service x-ui stop >/dev/null 2>&1 || true
     fi
 
-    rm -rf /etc/x-ui /usr/local/x-ui
+    if confirm "确认删除 3x-ui 数据目录 /etc/x-ui 与 /usr/local/x-ui?"; then
+        rm -rf -- /etc/x-ui /usr/local/x-ui
+    else
+        msg_warn "已保留 3x-ui 数据目录。"
+    fi
     rm -f /usr/local/bin/x-ui /usr/bin/x-ui
 
     if confirm "是否同时删除 3x-ui 对应的 Nginx 反代配置文件? (/etc/nginx/conf.d/3x-ui*.conf)"; then
@@ -355,7 +367,7 @@ uninstall_nginx() {
     rm -f /etc/sudoers.d/vps-init-suite-certsync-*
 
     if confirm "是否同时删除 Nginx 配置与站点目录? (/etc/nginx /var/www/html /var/log/nginx)"; then
-        rm -rf /etc/nginx /var/www/html /var/log/nginx
+        rm -rf -- /etc/nginx /var/www/html /var/log/nginx
         msg_ok "Nginx 配置与站点目录已删除。"
     else
         msg_warn "已保留 Nginx 配置与站点目录。"
@@ -404,8 +416,8 @@ uninstall_fail2ban() {
     systemctl reset-failed >/dev/null 2>&1 || true
 
     if confirm "是否同时删除 Fail2Ban 配置、数据库和日志? (/etc/fail2ban /var/lib/fail2ban /var/log/fail2ban.log)"; then
-        rm -rf /etc/fail2ban /var/lib/fail2ban
-        rm -f /var/log/fail2ban.log
+        rm -rf -- /etc/fail2ban /var/lib/fail2ban
+        rm -f -- /var/log/fail2ban.log
         msg_ok "Fail2Ban 配置、数据库和日志已删除。"
     else
         msg_warn "已保留 Fail2Ban 配置、数据库和日志。"

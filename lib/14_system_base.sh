@@ -845,6 +845,17 @@ download_remote_script() {
         return 1
     fi
 
+    if [ ! -s "$script_path" ] || ! head -n 1 "$script_path" | grep -q '^#!'; then
+        rm -f -- "$script_path"
+        msg_err "${label}文件为空或缺少脚本解释器声明，已拒绝执行。"
+        return 1
+    fi
+    if ! bash -n "$script_path"; then
+        rm -f -- "$script_path"
+        msg_err "${label}语法检查失败，已拒绝执行。"
+        return 1
+    fi
+
     chmod +x "$script_path" 2>/dev/null || true
     printf '%s\n' "$script_path"
 }
@@ -857,8 +868,12 @@ run_remote_script() {
     shift 3
 
     script_path=$(download_remote_script "$url" "$tmp_pattern" "$label") || return 1
-    bash "$script_path" "$@"
-    rc=$?
+    if bash "$script_path" "$@"; then
+        rc=0
+    else
+        rc=$?
+        msg_err "${label}执行失败，退出码：${rc}。"
+    fi
     rm -f "$script_path"
     return "$rc"
 }
