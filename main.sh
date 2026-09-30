@@ -48,7 +48,7 @@ while true; do
     menu_pair "[9] 机器测试 >>"
 
     menu_section "快捷入口"
-    menu_pair "[0] 退出管理系统"
+    menu_pair "[F] Fail2Ban 管理" "[0] 退出管理系统"
 
     draw_line
     status_pair "HOST" "$(hostname)"
@@ -74,6 +74,7 @@ while true; do
         7) install_system_tools ;;
         8) show_system_report ;;
         9) menu_machine_tests ;;
+        F|f) menu_fail2ban ;;
         A|a)
             confirm "执行全自动一键部署(已内置SSH/用户/iptables/ping初始化逻辑)" && \
                 run_inlined_auto_deploy

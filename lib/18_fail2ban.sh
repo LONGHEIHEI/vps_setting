@@ -7,6 +7,34 @@ check_fail2ban() {
     fi
 }
 
+menu_fail2ban() {
+    local choice action
+    while true; do
+        clear
+        menu_header "Fail2Ban 管理"
+        status_pair "安装状态" "$(check_fail2ban)"
+        menu_pair "[1] 安装/配置 SSH 防暴力破解" "[2] 查看状态与封禁详情"
+        menu_pair "[3] 卸载 Fail2Ban"
+        menu_footer_back
+        menu_read_submenu_action choice action
+        case "$action" in
+            return) return ;;
+            retry) continue ;;
+            back) return ;;
+        esac
+        case "$choice" in
+            1)
+                if confirm "安装并配置 Fail2Ban 防暴力破解"; then
+                    install_and_configure_fail2ban && msg_ok "Fail2Ban 安装/配置完成"
+                fi ;;
+            2) show_fail2ban_status_detail ;;
+            3) run_confirmed_action "卸载 Fail2Ban（删除配置需二次确认）" uninstall_fail2ban ;;
+            *) msg_warn "无效选项。" ;;
+        esac
+        pause
+    done
+}
+
 ensure_fail2ban_installed() {
     if command -v fail2ban-client >/dev/null 2>&1; then
         return 0
@@ -43,14 +71,36 @@ get_fail2ban_banaction() {
         elif [ -f /etc/fail2ban/action.d/nftables.conf ]; then
             echo "nftables"
         else
-            echo "iptables-multiport"
+            msg_err "当前防火墙为 nftables，但未找到可用的 Fail2Ban nftables 动作。"
+            return 1
+        fi
+    elif [ "$backend" = "firewalld" ]; then
+        if [ -f /etc/fail2ban/action.d/firewallcmd-rich-rules.conf ]; then
+            echo "firewallcmd-rich-rules"
+        elif [ -f /etc/fail2ban/action.d/firewallcmd-ipset.conf ]; then
+            echo "firewallcmd-ipset"
+        else
+            msg_err "当前防火墙为 firewalld，但未找到可用的 Fail2Ban firewalld 动作。"
+            return 1
         fi
     elif [ -f /etc/fail2ban/action.d/iptables-multiport.conf ]; then
         echo "iptables-multiport"
     elif [ -f /etc/fail2ban/action.d/iptables-allports.conf ]; then
         echo "iptables-allports"
     else
-        echo "iptables-multiport"
+        msg_err "未找到可用的 Fail2Ban iptables 动作。"
+        return 1
+    fi
+}
+
+restore_fail2ban_jail_after_error() {
+    local jail_local="${FAIL2BAN_SSH_JAIL_FILE:-/etc/fail2ban/jail.local}"
+    if [ "${FAIL2BAN_LAST_BACKUP_FILE:-}" = "新建文件" ]; then
+        rm -f -- "$jail_local"
+    elif [ -n "${FAIL2BAN_LAST_BACKUP_FILE:-}" ] && [ -f "$FAIL2BAN_LAST_BACKUP_FILE" ]; then
+        cp -af -- "$FAIL2BAN_LAST_BACKUP_FILE" "$jail_local"
+    else
+        return 1
     fi
 }
 
@@ -93,6 +143,7 @@ write_fail2ban_jail_local() {
             return 1
         }
     fi
+    FAIL2BAN_LAST_BACKUP_FILE="$backup_file"
 
     tmp_file=$(mktemp) || {
         msg_err "创建临时文件失败，无法更新 ${jail_local}。"
@@ -269,7 +320,7 @@ update_fail2ban_ssh_port() {
     fi
 
     f2b_backend=$(get_fail2ban_sshd_backend)
-    f2b_banaction=$(get_fail2ban_banaction)
+    f2b_banaction=$(get_fail2ban_banaction) || return 1
 
     write_fail2ban_jail_local "$ports" "$f2b_backend" "$f2b_banaction" || return 1
 
@@ -279,6 +330,7 @@ update_fail2ban_ssh_port() {
         msg_err "Fail2Ban 配置校验失败，请检查 ${FAIL2BAN_SSH_JAIL_FILE}"
         tail -n 40 "$f2b_check_log" 2>/dev/null || true
         rm -f "$f2b_check_log"
+        restore_fail2ban_jail_after_error || msg_err "自动恢复 Fail2Ban 原配置失败，请手动恢复备份。"
         return 1
     fi
     rm -f "$f2b_check_log"
@@ -292,6 +344,11 @@ update_fail2ban_ssh_port() {
     fi
 
     msg_err "Fail2Ban 重启/重载失败，请检查服务状态。"
+    if restore_fail2ban_jail_after_error; then
+        systemctl restart fail2ban >/dev/null 2>&1 || service fail2ban restart >/dev/null 2>&1 || true
+    else
+        msg_err "自动恢复 Fail2Ban 原配置失败，请手动恢复备份。"
+    fi
     return 1
 }
 

@@ -398,7 +398,10 @@ uninstall_fail2ban() {
         service fail2ban stop >/dev/null 2>&1 || true
     fi
 
-    remove_fail2ban_managed_jail_local >/dev/null 2>&1 || true
+    remove_fail2ban_managed_jail_local || {
+        msg_err "移除 Fail2Ban 托管配置失败，已停止卸载以避免留下不一致状态。"
+        return 1
+    }
 
     mapfile -t installed_pkgs < <(filter_installed_packages "${pkg_list[@]}" | awk 'NF')
     if [ "${#installed_pkgs[@]}" -gt 0 ]; then
