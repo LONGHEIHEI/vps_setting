@@ -26,7 +26,7 @@ get_firewall_backend_state() {
 }
 
 has_systemd_service() {
-    local unit="$1"
+    local unit="$1" load_state
     command -v systemctl >/dev/null 2>&1 || return 1
 
     if [[ ${SYSTEMD_SERVICE_EXISTS_CACHE["$unit"]+_} ]]; then
@@ -38,12 +38,14 @@ has_systemd_service() {
         *.service)
             [ -e "/etc/systemd/system/$unit" ] && { SYSTEMD_SERVICE_EXISTS_CACHE["$unit"]=1; return 0; }
             [ -e "/run/systemd/system/$unit" ] && { SYSTEMD_SERVICE_EXISTS_CACHE["$unit"]=1; return 0; }
+            [ -e "/usr/local/lib/systemd/system/$unit" ] && { SYSTEMD_SERVICE_EXISTS_CACHE["$unit"]=1; return 0; }
             [ -e "/usr/lib/systemd/system/$unit" ] && { SYSTEMD_SERVICE_EXISTS_CACHE["$unit"]=1; return 0; }
             [ -e "/lib/systemd/system/$unit" ] && { SYSTEMD_SERVICE_EXISTS_CACHE["$unit"]=1; return 0; }
             ;;
     esac
 
-    if systemctl list-unit-files --type=service --all --no-legend 2>/dev/null | awk '{print $1}' | grep -Fxq "$unit"; then
+    load_state=$(systemctl show --property=LoadState --value "$unit" 2>/dev/null)
+    if [ -n "$load_state" ] && [ "$load_state" != "not-found" ]; then
         SYSTEMD_SERVICE_EXISTS_CACHE["$unit"]=1
         return 0
     fi
