@@ -8,6 +8,8 @@ menu_base_config() {
         menu_header "1. 基础环境"
         status_pair "HOST" "$(hostname)"
         status_pair "TZ" "$(timedatectl show --property=Timezone --value)"
+        status_pair "NTP" "$(get_time_sync_status)"
+        status_pair "TIME" "$(date '+%F %T %Z')"
         draw_line
         menu_section "系统身份"
         menu_pair "[1] 修改系统主机名" "[2] 修改系统时区"
@@ -19,6 +21,9 @@ menu_base_config() {
         menu_pair "[5] 查看备份路径" "[6] 清除脚本备份"
         menu_section "磁盘管理"
         menu_pair "[7] 查看磁盘占用" "[8] 清理包缓存与旧日志"
+
+        menu_section "时间同步"
+        menu_pair "[9] 自动同步时间" "[10] 同步一次时间"
         menu_footer_back
         menu_read_submenu_action sub menu_action
         case "$menu_action" in
@@ -70,6 +75,10 @@ menu_base_config() {
                 show_disk_usage_report ;;
             8)
                 run_confirmed_action "清理软件包缓存及 7 天前的系统日志" clean_system_cache_and_logs ;;
+            9)
+                run_confirmed_action "开启系统时间自动同步" enable_time_sync ;;
+            10)
+                run_confirmed_action "立即与上游时间服务器同步一次系统时间" sync_time_once ;;
         esac
         pause
     done

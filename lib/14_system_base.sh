@@ -995,3 +995,170 @@ clean_system_cache_and_logs() {
     fi
     msg_ok "软件包缓存已清理；系统日志已按 7 天保留策略清理。"
 }
+
+# --- [时间同步] ---
+detect_time_sync_backend() {
+    local unit
+    for unit in chronyd.service ntpsec.service ntpd.service systemd-timesyncd.service; do
+        if is_systemd_service_active "$unit"; then
+            case "$unit" in
+                chronyd.service) printf '%s\n' "chrony" ; return 0 ;;
+                ntpsec.service|ntpd.service) printf '%s\n' "ntp" ; return 0 ;;
+                systemd-timesyncd.service) printf '%s\n' "systemd-timesyncd" ; return 0 ;;
+            esac
+        fi
+    done
+
+    if has_systemd_service chronyd.service; then
+        printf '%s\n' "chrony"
+    elif has_systemd_service ntpsec.service || has_systemd_service ntpd.service; then
+        printf '%s\n' "ntp"
+    elif has_systemd_service systemd-timesyncd.service; then
+        printf '%s\n' "systemd-timesyncd"
+    elif command -v chronyc >/dev/null 2>&1; then
+        printf '%s\n' "chrony"
+    else
+        printf '%s\n' "none"
+    fi
+}
+
+time_sync_backend_unit() {
+    case "$1" in
+        chrony) printf '%s\n' "chronyd.service" ;;
+        ntp)
+            if has_systemd_service ntpsec.service; then
+                printf '%s\n' "ntpsec.service"
+            else
+                printf '%s\n' "ntpd.service"
+            fi ;;
+        systemd-timesyncd) printf '%s\n' "systemd-timesyncd.service" ;;
+        *) printf '%s\n' "" ;;
+    esac
+}
+
+get_time_sync_status() {
+    local backend unit
+
+    backend=$(detect_time_sync_backend)
+    if [ "$backend" = "none" ]; then
+        if command -v timedatectl >/dev/null 2>&1 && [ "$(timedatectl show --property=NTP --value 2>/dev/null)" = "yes" ]; then
+            printf '%s\n' "已开启"
+        else
+            printf '%s\n' "未开启"
+        fi
+        return 0
+    fi
+
+    unit=$(time_sync_backend_unit "$backend")
+    if is_systemd_service_active "$unit"; then
+        printf '已开启 (%s)\n' "$backend"
+    else
+        printf '未开启 (%s)\n' "$backend"
+    fi
+}
+
+ensure_time_sync_client() {
+    local backend
+
+    backend=$(detect_time_sync_backend)
+    if [ "$backend" = "none" ]; then
+        msg_info "未检测到时间同步服务，正在安装 chrony。" >&2
+        pkg_install chrony >/dev/null 2>&1 || return 1
+        backend=$(detect_time_sync_backend)
+    fi
+
+    [ "$backend" != "none" ] || return 1
+    printf '%s\n' "$backend"
+}
+
+start_time_sync_service() {
+    local unit
+
+    command -v systemctl >/dev/null 2>&1 || return 1
+    unit=$(time_sync_backend_unit "$1")
+    [ -n "$unit" ] || return 1
+    is_systemd_service_active "$unit" && return 0
+    systemctl start "$unit" >/dev/null 2>&1
+}
+
+enable_time_sync() {
+    local backend unit
+
+    backend=$(ensure_time_sync_client) || { msg_err "时间同步服务不可用，请检查软件源后重试。"; return 1; }
+    unit=$(time_sync_backend_unit "$backend")
+
+    if command -v timedatectl >/dev/null 2>&1; then
+        timedatectl set-ntp true >/dev/null 2>&1 || msg_warn "timedatectl 设置 NTP 未成功，将直接管理服务。"
+    fi
+
+    if ! command -v systemctl >/dev/null 2>&1; then
+        if [ "$(get_time_sync_status)" != "未开启" ]; then
+            msg_ok "已开启自动同步时间：${backend}。"
+            msg_info "当前状态：$(get_time_sync_status)  系统时间：$(date '+%F %T %Z')"
+            return 0
+        fi
+        msg_err "当前系统缺少 systemd，无法自动管理时间同步服务。"
+        return 1
+    fi
+
+    if ! is_systemd_service_active "$unit"; then
+        systemctl enable --now "$unit" >/dev/null 2>&1 || true
+    fi
+
+    if is_systemd_service_active "$unit"; then
+        msg_ok "已开启自动同步时间：${backend} (${unit})。"
+        msg_info "当前状态：$(get_time_sync_status)  系统时间：$(date '+%F %T %Z')"
+        return 0
+    fi
+
+    msg_err "自动同步时间启动失败，请查看 ${unit} 状态与日志。"
+    return 1
+}
+
+sync_time_once() {
+    local backend unit output waited
+
+    backend=$(ensure_time_sync_client) || { msg_err "时间同步服务不可用，请检查软件源后重试。"; return 1; }
+    unit=$(time_sync_backend_unit "$backend")
+
+    case "$backend" in
+        chrony)
+            command -v chronyc >/dev/null 2>&1 || { msg_err "缺少 chronyc，无法立即同步。"; return 1; }
+            start_time_sync_service "$backend" || true
+            output=$(chronyc makestep 2>&1) || { msg_err "chrony 立即同步失败：${output}"; return 1; }
+            ;;
+        systemd-timesyncd)
+            command -v systemctl >/dev/null 2>&1 || { msg_err "缺少 systemctl，无法立即同步。"; return 1; }
+            systemctl restart systemd-timesyncd.service >/dev/null 2>&1 || { msg_err "重启 systemd-timesyncd 失败。"; return 1; }
+            waited=0
+            while [ "$waited" -lt 30 ]; do
+                [ "$(timedatectl show --property=NTPSynchronized --value 2>/dev/null)" = "yes" ] && break
+                sleep 2
+                waited=$((waited + 2))
+            done
+            ;;
+        ntp)
+            command -v ntpd >/dev/null 2>&1 || { msg_err "缺少 ntpd，无法立即同步。"; return 1; }
+            if command -v systemctl >/dev/null 2>&1; then
+                systemctl stop "$unit" >/dev/null 2>&1 || true
+            fi
+            output=$(ntpd -gq 2>&1) || {
+                if command -v systemctl >/dev/null 2>&1; then
+                    systemctl start "$unit" >/dev/null 2>&1 || true
+                fi
+                msg_err "ntpd 立即同步失败：${output}"
+                return 1
+            }
+            if command -v systemctl >/dev/null 2>&1; then
+                systemctl start "$unit" >/dev/null 2>&1 || true
+            fi
+            ;;
+        *)
+            msg_err "未找到可用的时间同步客户端。"
+            return 1
+            ;;
+    esac
+
+    msg_ok "已发起一次时间同步。"
+    msg_info "当前状态：$(get_time_sync_status)  系统时间：$(date '+%F %T %Z')"
+}

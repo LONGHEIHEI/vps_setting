@@ -84,6 +84,11 @@ assert_status 1 '拒绝备份目录外路径' suite_backup_is_safe_path /etc/pas
 assert_output '80 443 8080' '端口列表去重' normalize_port_list '80,443 80,8080'
 assert_status 1 '端口列表拒绝非法值' normalize_port_list '80,abc'
 
+# Time sync backend mapping.
+assert_output 'chronyd.service' 'chrony 服务单元名' time_sync_backend_unit chrony
+assert_output 'systemd-timesyncd.service' 'systemd-timesyncd 服务单元名' time_sync_backend_unit systemd-timesyncd
+assert_output '' '未知后端无服务单元名' time_sync_backend_unit none
+
 # Deterministic tuning values.
 assert_output '6' '亚洲区域 100Mbps 缓冲值' tcp_tune_calculate_buffer_mb 100 asia
 assert_output '64' '海外区域 1000Mbps 缓冲值' tcp_tune_calculate_buffer_mb 1000 overseas
