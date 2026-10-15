@@ -1058,12 +1058,20 @@ get_time_sync_status() {
 }
 
 ensure_time_sync_client() {
-    local backend
+    local backend install_output
 
     backend=$(detect_time_sync_backend)
     if [ "$backend" = "none" ]; then
         msg_info "未检测到时间同步服务，正在安装 chrony。" >&2
-        pkg_install chrony >/dev/null 2>&1 || return 1
+        install_output=$(pkg_install chrony 2>&1) || {
+            msg_warn "首次安装 chrony 未成功，正在更新软件索引后重试。" >&2
+            pkg_update >/dev/null 2>&1 || true
+            install_output=$(pkg_install chrony 2>&1) || {
+                msg_err "chrony 安装失败，包管理器输出如下：" >&2
+                printf '%s\n' "$install_output" >&2
+                return 1
+            }
+        }
         backend=$(detect_time_sync_backend)
     fi
 
