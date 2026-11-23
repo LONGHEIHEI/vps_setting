@@ -289,7 +289,7 @@ menu_network_performance() {
         status_pair "优先级" "$(get_proto_priority)"
         status_pair "IPv6" "$(get_ipv6_status)"
         status_pair "TCP" "$(get_bbr_status)"
-        status_pair "Swap" "$(free -m | awk '/Swap:/{printf "%d/%dM", $3, $2}')"
+        status_pair "Swap" "$(system_swap_usage_mib | awk '{printf "%d/%dM", $1, $2}')"
         draw_line
         menu_section "网络栈"
         menu_pair "[1] TCP网络调优" "[2] DNS解析优化"

@@ -414,6 +414,110 @@ status_pair() {
     printf "${DIM} : ${NC}${W1}%s${NC}\n" "$value"
 }
 
+# --- [系统状态采集：优先读取 /proc，避免依赖 procps/hostname] ---
+system_meminfo_kib() {
+    local key="$1" name val value=0
+
+    if [ -r /proc/meminfo ]; then
+        while read -r name val _; do
+            if [ "$name" = "$key" ]; then
+                value="$val"
+                break
+            fi
+        done < /proc/meminfo
+    fi
+
+    printf '%s\n' "${value:-0}"
+}
+
+# 输出：已用内存(MiB) 总内存(MiB)
+system_mem_usage_mib() {
+    local total available free_kib used
+    total=$(system_meminfo_kib MemTotal:)
+    available=$(system_meminfo_kib MemAvailable:)
+    free_kib=$(system_meminfo_kib MemFree:)
+    [ "${available:-0}" -gt 0 ] || available="$free_kib"
+    used=$((total - available))
+    [ "$used" -lt 0 ] && used=0
+
+    printf '%d %d\n' "$((used / 1024))" "$((total / 1024))"
+}
+
+# 输出：内存占用百分比，例如 12.3
+system_mem_percent() {
+    local total available free_kib used tenths
+    total=$(system_meminfo_kib MemTotal:)
+    available=$(system_meminfo_kib MemAvailable:)
+    free_kib=$(system_meminfo_kib MemFree:)
+    [ "${available:-0}" -gt 0 ] || available="$free_kib"
+
+    if [ "${total:-0}" -le 0 ]; then
+        printf '0.0\n'
+        return 0
+    fi
+
+    used=$((total - available))
+    [ "$used" -lt 0 ] && used=0
+    tenths=$((used * 1000 / total))
+    printf '%d.%d\n' "$((tenths / 10))" "$((tenths % 10))"
+}
+
+# 输出：已用交换(MiB) 总交换(MiB)
+system_swap_usage_mib() {
+    local total free_kib used
+    total=$(system_meminfo_kib SwapTotal:)
+    free_kib=$(system_meminfo_kib SwapFree:)
+    used=$((total - free_kib))
+    [ "$used" -lt 0 ] && used=0
+
+    printf '%d %d\n' "$((used / 1024))" "$((total / 1024))"
+}
+
+system_load_1min() {
+    local load=""
+
+    if [ -r /proc/loadavg ]; then
+        read -r load _ < /proc/loadavg || load=""
+    fi
+
+    if [ -z "$load" ] && command -v uptime >/dev/null 2>&1; then
+        load=$(uptime 2>/dev/null | awk -F'load average:' '{print $2}' | cut -d',' -f1 | tr -d ' ') || load=""
+    fi
+
+    printf '%s\n' "${load:-0.0}"
+}
+
+system_hostname() {
+    local name=""
+
+    if command -v hostname >/dev/null 2>&1; then
+        name=$(hostname 2>/dev/null) || name=""
+    fi
+
+    if [ -z "$name" ] && [ -r /proc/sys/kernel/hostname ]; then
+        read -r name < /proc/sys/kernel/hostname || name=""
+    fi
+
+    printf '%s\n' "${name:-${HOSTNAME:-N/A}}"
+}
+
+system_primary_ip() {
+    local addr=""
+
+    if command -v ip >/dev/null 2>&1; then
+        addr=$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}') || addr=""
+        if [ -z "$addr" ]; then
+            addr=$(ip -o -4 addr show scope global 2>/dev/null | awk '$2 !~ /^(lo|docker|br-|veth|virbr|wg|tun|tap)/ { split($4, a, "/"); print a[1]; exit }') || addr=""
+        fi
+    fi
+
+    if [ -z "$addr" ] && command -v hostname >/dev/null 2>&1; then
+        addr=$(hostname -I 2>/dev/null | awk '{print $1}') || addr=""
+    fi
+
+    printf '%s\n' "${addr:-N/A}"
+}
+
 # 等待用户输入
 pause() {
     printf "\n"

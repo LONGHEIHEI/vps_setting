@@ -1054,13 +1054,15 @@ get_cpu_info() {
 
 # 获取内存与磁盘信息
 get_memory_and_disk_info() {
-    local mem_total=$(free -m | awk '/Mem:/{print $2}')
-    local mem_used=$(free -m | awk '/Mem:/{print $3}')
-    local mem_pct=$(awk "BEGIN {printf \"%.2f\", $mem_used/$mem_total*100}")
-    local swap_total=$(free -m | awk '/Swap:/{print $2}')
-    local swap_used=$(free -m | awk '/Swap:/{print $3}')
-    local swap_pct=0
-    [ "$swap_total" -gt 0 ] && swap_pct=$(awk "BEGIN {printf \"%.2f\", $swap_used/$swap_total*100}")
+    local mem_total mem_used mem_pct=0 swap_total swap_used swap_pct=0
+    read -r mem_used mem_total <<< "$(system_mem_usage_mib)"
+    if [ "${mem_total:-0}" -gt 0 ]; then
+        mem_pct=$(awk "BEGIN {printf \"%.2f\", $mem_used/$mem_total*100}")
+    fi
+    read -r swap_used swap_total <<< "$(system_swap_usage_mib)"
+    if [ "${swap_total:-0}" -gt 0 ]; then
+        swap_pct=$(awk "BEGIN {printf \"%.2f\", $swap_used/$swap_total*100}")
+    fi
 
     local disk_total=$(df -h / | awk 'NR==2{print $2}')
     local disk_used=$(df -h / | awk 'NR==2{print $3}')

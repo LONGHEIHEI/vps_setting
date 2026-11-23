@@ -105,8 +105,10 @@ install_3x_ui_preconfigured() {
 
     # --- 4. 输出配置信息 ---
     local server_ip
-    server_ip=$(hostname -I | awk '{print $1}')
-    [ -z "$server_ip" ] && server_ip=$(curl -s4 --connect-timeout 3 --max-time 5 ip.sb 2>/dev/null || echo "你的服务器IP")
+    server_ip=$(system_primary_ip)
+    if [ -z "$server_ip" ] || [ "$server_ip" = "N/A" ]; then
+        server_ip=$(curl -s4 --connect-timeout 3 --max-time 5 ip.sb 2>/dev/null || echo "你的服务器IP")
+    fi
 
     msg_ok "3x-ui 安装并预置配置完成！"
     draw_line

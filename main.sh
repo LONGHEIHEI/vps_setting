@@ -31,9 +31,9 @@ while true; do
         exit 1
     fi
     clear
-    DASH_LOAD=$(uptime | awk -F'load average:' '{print $2}' | cut -d',' -f1 | tr -d ' ')
-    DASH_MEM=$(free | awk '/Mem:/{printf "%.1f%%", $3/$2*100}')
-    DASH_IP=$(hostname -I | awk '{print $1}')
+    DASH_LOAD=$(system_load_1min)
+    DASH_MEM="$(system_mem_percent)%"
+    DASH_IP=$(system_primary_ip)
     menu_header "SERVER MASTER ULTIMATE SUITE  v${SCRIPT_VERSION}"
     menu_section "初始化与安全"
     menu_pair "[1] 基础环境 >>" "[2] SSH与账号安全 >>"
@@ -51,7 +51,7 @@ while true; do
     menu_pair "[F] Fail2Ban 管理" "[0] 退出管理系统"
 
     draw_line
-    status_pair "HOST" "$(hostname)"
+    status_pair "HOST" "$(system_hostname)"
     status_pair "LOAD" "${DASH_LOAD:-"0.0"}"
     status_pair "MEM" "${DASH_MEM:-"0.0"}"
     status_pair "IP" "${DASH_IP:-"N/A"}"

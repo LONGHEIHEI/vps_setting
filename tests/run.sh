@@ -53,6 +53,12 @@ get_fail2ban_test_matches() {
 
 SUITE_BACKUP_DIR="/tmp/vps-suite-test-backups"
 
+# 仪表盘状态采集在缺少 procps/hostname 的环境中仍可用。
+assert_status 0 '负载采集不依赖 uptime' env PATH=/nonexistent /bin/bash -c "source '$ROOT_DIR/lib/01_core_ui.sh'; [ -n \"\$(system_load_1min)\" ]"
+assert_status 0 '内存占用采集不依赖 free' env PATH=/nonexistent /bin/bash -c "source '$ROOT_DIR/lib/01_core_ui.sh'; [ -n \"\$(system_mem_percent)\" ]"
+assert_status 0 '主机名采集不依赖 hostname' env PATH=/nonexistent /bin/bash -c "source '$ROOT_DIR/lib/01_core_ui.sh'; [ -n \"\$(system_hostname)\" ]"
+assert_status 0 '主 IP 采集缺少网络工具时降级' env PATH=/nonexistent /bin/bash -c "source '$ROOT_DIR/lib/01_core_ui.sh'; [ -n \"\$(system_primary_ip)\" ]"
+
 # Protocol and port validation.
 assert_status 0 '协议 tcp 合法' validate_protocol tcp
 assert_status 0 '协议 all 合法' validate_protocol all
